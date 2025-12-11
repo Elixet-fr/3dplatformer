@@ -121,7 +121,7 @@
     let audioCtx;
     let backgroundMusic = null;
 
-    // Corrigido: D5 (587.33) foi adicionado à declaração
+    // Frequencies (C4 to D5)
     const C4 = 261.63, D4 = 293.66, E4 = 329.63, F4 = 349.23, G4 = 392.00, A4 = 440.00, B4 = 493.88, C5 = 523.25, D5 = 587.33;
 
     function playMusic() {
@@ -147,7 +147,7 @@
         { note: D4, duration: quarterNote }, 
         { note: F4, duration: quarterNote },
         { note: A4, duration: quarterNote }, 
-        { note: D5, duration: quarterNote }, // D5 agora está definido!
+        { note: D5, duration: quarterNote },
         { note: B4, duration: quarterNote * 2 },
         { note: G4, duration: quarterNote * 2 },
         { note: E4, duration: quarterNote * 1 },
@@ -344,7 +344,8 @@
       spike.receiveShadow = true;
       spike.position.set(movingPlat.position.x, movingPlat.position.y + platformHeight/2 + 0.5, movingPlat.position.z);
       scene.add(spike);
-      spikes.push({mesh: spike, platform: movingPling});
+      // CORRIGIDO: movingPling -> movingPlat
+      spikes.push({mesh: spike, platform: movingPlat});
 
       // 5. Final Climb Wall & Win Platform
       yPos += 2;
@@ -371,7 +372,7 @@
       window.addEventListener('resize', onWindowResize);
       window.addEventListener('keydown', e => {
         keys[e.code] = true;
-        if(e.code === 'Space' || e.code === 'Numpad0'){
+        if(e.code === 'Space' || keys['Numpad0']){
           jumpInputBufferTimer = JUMP_INPUT_BUFFER_TIME;
         }
         if(e.code === 'ShiftLeft' && dashCooldownTimer <= 0 && !isDashing){
@@ -719,13 +720,13 @@
       let deltaX = e.clientX - dragStart.x;
       let deltaY = e.clientY - dragStart.y;
       dragStart.x = e.clientX;
-      dragStart.y = e.clientX; // Corrigido um erro de digitação aqui
       dragStart.y = e.clientY;
       orbitAngleY -= deltaX * dragSensitivity;
       orbitAngleX -= deltaY * dragSensitivity;
     }
 
     window.addEventListener('DOMContentLoaded', () => {
+      // AudioContext must be created after DOMContentLoaded
       audioCtx = new AudioContext();
       init();
       cameraTarget.copy(player.position);
@@ -743,7 +744,7 @@
       document.getElementById('gameOverRestartBtn').addEventListener('click', () => respawn());
       
       window.addEventListener('keydown', e => {
-        if(e.code === 'KeyR') respawn();
+        if(e.code === 'KeyR' && (gameOver || win)) respawn();
       });
     });
   </script>
