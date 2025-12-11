@@ -75,9 +75,10 @@
   </div>
   <div id="canvas-holder"></div>
 
-  <script src="https://cdn.jsdelivr.net/npm/three@0.152.2/build/three.min.js"></script>
+  <script type="module">
+    // NEW: Import Three.js as a module
+    import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.152.2/build/three.module.js';
 
-  <script>
     let scene, camera, renderer;
     let player, platforms = [], spikes = [], walls = [];
     let velocity = new THREE.Vector3();
@@ -325,7 +326,7 @@
       spike.receiveShadow = true;
       spike.position.set(movingPlat.position.x, movingPlat.position.y + platformHeight/2 + 0.5, movingPlat.position.z);
       scene.add(spike);
-      spikes.push({mesh: spike, platform: movingPlat}); // Spike initialized correctly
+      spikes.push({mesh: spike, platform: movingPlat}); 
 
       // --- 5. WALL CLIMB TOWER SECTION ---
       const towerHeight = 12; 
@@ -648,7 +649,7 @@
 
         // 6. Check spikes collision (game over)
         for(let s of spikes){
-            // THIS LINE IS CORRECT: ACCESSES THE MESH'S POSITION
+            // THIS LINE IS NOW CORRECT
             const sp = s.mesh.position; 
             if(player.position.distanceTo(sp) < 0.7){
                 triggerGameOver();
@@ -692,8 +693,11 @@
     let animationFrameId = null;
     function animate() {
       if (isPaused || gameOver || win) {
-        cancelAnimationFrame(animationFrameId);
-        animationFrameId = null;
+        // Ensure only one frame is cancelled if we exit early
+        if (animationFrameId !== null) {
+          cancelAnimationFrame(animationFrameId);
+          animationFrameId = null;
+        }
         return;
       }
 
@@ -720,7 +724,7 @@
         document.getElementById('pausePanel').style.display = 'none';
         document.getElementById('overlay').style.display = 'none';
         
-        if (!animationFrameId) {
+        if (animationFrameId === null) {
             clock.start();
             animate();
         }
