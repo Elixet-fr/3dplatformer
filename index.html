@@ -4,6 +4,9 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>3D Platformer - Wall Jump Challenge</title>
+  
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🏃</text></svg>">
+  
   <style>
     html, body { height: 100%; margin: 0; overflow: hidden; }
     body { font-family: Arial, Helvetica, sans-serif; background: #87ceeb; }
@@ -75,9 +78,10 @@
   </div>
   <div id="canvas-holder"></div>
 
-  <script type="module">
-    // NEW: Import Three.js as a module
-    import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.152.2/build/three.module.js';
+  <script src="https://cdn.jsdelivr.net/npm/three@0.152.2/build/three.min.js"></script>
+  
+  <script>
+    // Since we are using the global CDN, THREE is globally available.
 
     let scene, camera, renderer;
     let player, platforms = [], spikes = [], walls = [];
@@ -649,8 +653,10 @@
 
         // 6. Check spikes collision (game over)
         for(let s of spikes){
-            // THIS LINE IS NOW CORRECT
-            const sp = s.mesh.position; 
+            const mesh = s.mesh;
+            if(!mesh || !mesh.position) continue; // Safety check
+            
+            const sp = mesh.position; 
             if(player.position.distanceTo(sp) < 0.7){
                 triggerGameOver();
                 break;
@@ -693,7 +699,6 @@
     let animationFrameId = null;
     function animate() {
       if (isPaused || gameOver || win) {
-        // Ensure only one frame is cancelled if we exit early
         if (animationFrameId !== null) {
           cancelAnimationFrame(animationFrameId);
           animationFrameId = null;
