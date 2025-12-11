@@ -90,6 +90,10 @@
     const JUMP_INPUT_BUFFER_TIME = 0.15;
     let jumpInputBufferTimer = 0;
     
+    // NEW: Horizontal Lockout to prevent input cancelling wall jump push
+    const WALL_JUMP_LOCKOUT_TIME = 0.2; 
+    let horizontalLockoutTimer = 0; 
+
     // --- Dash Logic ---
     let isDashing = false;
     const DASH_SPEED = 20;
@@ -109,9 +113,7 @@
     let orbitRadius = 12;
     let orbitAngleX = Math.PI / 4;
     let orbitAngleY = 0;
-    
-    // ❌ REMOVED: isDragging, dragStart, dragSensitivity are no longer needed
-    let dragSensitivity = 0.005; // Keep this value for rotation speed
+    let dragSensitivity = 0.005;
     const cameraTarget = new THREE.Vector3();
     const CAMERA_SMOOTHING = 0.1;
 
@@ -408,7 +410,6 @@
                 dashDirection.addScaledVector(right, dirX);
                 dashDirection.normalize();
             } else {
-                // If player is standing still, dash in the direction the camera is facing
                 dashDirection.copy(forward);
             }
 
@@ -422,11 +423,8 @@
       });
       window.addEventListener('keyup', e => keys[e.code] = false);
 
-      // --- Mouse handlers for rotation (No hold required) ---
       renderer.domElement.addEventListener('mousemove', onMouseMove);
-      // Removed mousedown/mouseup events
 
-      // Initialize the camera start position
       cameraTarget.copy(player.position);
       cameraTarget.y += 0.5;
     }
@@ -464,6 +462,9 @@
             playSound('walljump');
             canWallJump = false;
             wallJumpCoyoteTimer = 0;
+            // START THE HORIZONTAL LOCKOUT
+            horizontalLockoutTimer = WALL_JUMP_LOCKOUT_TIME; 
+
         } else {
             velocity.y = JUMP_POWER;
             playSound('jump');
@@ -481,6 +482,7 @@
         }
         jumpInputBufferTimer = Math.max(0, jumpInputBufferTimer - delta);
         dashCooldownTimer = Math.max(0, dashCooldownTimer - delta);
+        horizontalLockoutTimer = Math.max(0, horizontalLockoutTimer - delta); // DECREMENT NEW TIMER
 
         // --- Handle Dash Logic (FIXED FOR CLIPPING) --- 
         if(isDashing) {
@@ -503,8 +505,8 @@
             }
         } 
         
-        // 1. Horizontal Movement (Only runs if NOT dashing) 
-        if (!isDashing) {
+        // 1. Horizontal Movement (Only runs if NOT dashing AND NOT locked out) 
+        if (!isDashing && horizontalLockoutTimer === 0) { 
             let dirX = 0, dirZ = 0;
             if(keys['KeyW'] || keys['ArrowUp']) dirZ -= 1;
             if(keys['KeyS'] || keys['ArrowDown']) dirZ += 1;
@@ -589,8 +591,7 @@
         // Apply Gravity
         velocity.y -= 9.8 * delta;
 
-        // Apply velocity X/Z (from wall jump or previous dash)
-        // This is where the Dashing velocity is applied and checked against walls
+        // Apply velocity X/Z (from wall jump or dash)
         player.position.x += velocity.x * delta;
         velocity.x *= 0.8; 
         player.position.z += velocity.z * delta; 
@@ -650,7 +651,6 @@
                 let diffZ = player.position.z - wPos.z;
                 
                 const penX = (wSize.x + half.x) - Math.abs(diffX);
-                // Fix: use wSize.z for the Z penetration calculation
                 const penZ = (wSize.z + half.z) - Math.abs(diffZ); 
 
                 if(penX < penZ) {
@@ -731,6 +731,7 @@
       jumpInputBufferTimer = 0;
       isDashing = false;
       dashCooldownTimer = 0;
+      horizontalLockoutTimer = 0; // Reset lockout timer
       player.material.color.setHex(defaultPlayerColor);
       
       // Menu Management: Hide all panels, start music, show canvas
@@ -752,20 +753,12 @@
       document.getElementById('gameOverPanel').style.display = 'none';
     }
 
-    // ❌ REMOVED: onMouseDown and onMouseUp
-
     function onMouseMove(e) {
-      // Rotation logic, now runs regardless of mouse button state
-      let deltaX = e.movementX; // Use movementX for delta relative to the last frame
-      let deltaY = e.movementY; // Use movementY
+      // Rotation logic, using movementX/Y for consistent rotation speed
+      let deltaX = e.movementX;
+      let deltaY = e.movementY;
 
-      // Note: If movementX/Y is zero or undefined (in some contexts), fall back to manual delta tracking 
-      if (deltaX === undefined || deltaY === undefined) {
-        // Fallback: This requires tracking previous mouse position, which we removed.
-        // For simplicity and common browser compatibility, we'll rely on movementX/Y.
-        // If movementX/Y isn't working, consider re-implementing the dragStart tracking.
-        return; 
-      }
+      if (deltaX === undefined || deltaY === undefined) return; 
       
       orbitAngleY -= deltaX * dragSensitivity;
       orbitAngleX -= deltaY * dragSensitivity;
@@ -781,7 +774,7 @@
         clock.start();
         playMusic();
         animate();
-        // Optional: Lock the cursor after starting
+        // Lock the cursor after starting for better camera control
         renderer.domElement.requestPointerLock(); 
       });
       document.getElementById('restartBtn').addEventListener('click', () => respawn());
@@ -791,10 +784,11 @@
         if(e.code === 'KeyR' && (gameOver || win)) respawn();
       });
       
-      // Handle unlocking the pointer when the game is paused/lost
+      // Handle unlocking the pointer (stops the free rotation)
       document.addEventListener('pointerlockchange', () => {
-        if (document.pointerLockElement !== renderer.domElement) {
-          // If the cursor is released, you might want to pause the game or stop rotation
+        if (document.pointerLockElement !== renderer.domElement && !gameOver && !win) {
+          // If the cursor is unlocked during gameplay, pause or show a reminder
+          console.log("Cursor unlocked. Click game area to resume pointer lock.");
         }
       });
     });
