@@ -3,9 +3,9 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>3D Platformer - Wall Jump Challenge</title>
+  <title>3D Platformer</title>
   
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🏃</text></svg>">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>👍</text></svg>">
   
   <style>
     html, body { height: 100%; margin: 0; overflow: hidden; }
@@ -35,6 +35,23 @@
       color: white;
       max-width: 320px;
       text-align: center;
+      margin: 10px; /* Separates panels if multiple are visible */
+    }
+    .settings-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 10px;
+        margin-top: 15px;
+        text-align: left;
+    }
+    .settings-grid label {
+        grid-column: 1 / 2;
+        align-self: center;
+    }
+    .settings-grid input[type="range"], .settings-grid input[type="color"] {
+        grid-column: 2 / 3;
+        width: 100%;
+        margin: 0;
     }
     button {
       padding: 8px 12px;
@@ -44,7 +61,7 @@
       color: white;
       cursor: pointer;
       font-size: 14px;
-      margin-top: 12px;
+      margin: 12px 6px 0 6px; /* Adjusted margin */
     }
     canvas { display: block; }
   </style>
@@ -52,7 +69,7 @@
 <body>
   <div id="ui">
     WASD / Arrow keys: move &nbsp;&nbsp; Space: jump &nbsp;&nbsp; **Shift: dash** &nbsp;&nbsp; **Esc: Pause** &nbsp;&nbsp; R: respawn<br>
-    Mouse move: rotate camera<br>
+    Mouse move: rotate camera &nbsp;&nbsp; **G: Settings**<br>
     **Challenge:** Use the wall jump (jump while sliding on a wall) to climb the tower.
   </div>
   <div id="overlay">
@@ -60,20 +77,43 @@
       <h2 style="margin:0 0 8px 0">3D Platformer — Wall Climb Challenge</h2>
       <div>Use WASD to move. Use **Shift** to dash. Click 'Start' to begin.</div>
       <button id="startBtn">Start</button>
+      <button id="showSettingsBtn">Settings (G)</button>
     </div>
+    
+    <div class="panel" id="settingsPanel" style="display:none;">
+      <h2 style="margin:0 0 8px 0">Settings</h2>
+      
+      <div class="settings-grid">
+        <label for="volumeRange">Music Volume</label>
+        <input type="range" id="volumeRange" min="0" max="100" value="50">
+        
+        <label for="playerColorPicker">Player Color</label>
+        <input type="color" id="playerColorPicker" value="#FF8C00">
+        
+        <label for="cameraDistanceRange">Camera Distance</label>
+        <input type="range" id="cameraDistanceRange" min="5" max="20" value="12">
+        <span id="cameraDistanceValue" style="grid-column: 2 / 3; font-size: 12px;">12m</span>
+      </div>
+      
+      <button id="closeSettingsBtn">Close</button>
+    </div>
+    
     <div class="panel" id="winPanel" style="display:none;">
       <h2 style="margin:0 0 8px 0">You win! 🎉</h2>
       <button id="restartBtn">Play again</button>
     </div>
+    
     <div class="panel" id="gameOverPanel" style="display:none;">
       <h2 style="margin:0 0 8px 0; color:#f33;">Game Over</h2>
       <div>You hit a spike or fell! Try again.</div>
       <button id="gameOverRestartBtn">Restart</button>
     </div>
+    
     <div class="panel" id="pausePanel" style="display:none;">
       <h2 style="margin:0 0 8px 0">Game Paused</h2>
       <button id="resumeBtn">Resume (Esc)</button>
       <button id="pauseRestartBtn">Restart Level</button>
+      <button id="pauseSettingsBtn">Settings (G)</button>
     </div>
   </div>
   <div id="canvas-holder"></div>
@@ -81,8 +121,7 @@
   <script src="https://cdn.jsdelivr.net/npm/three@0.152.2/build/three.min.js"></script>
   
   <script>
-    // Since we are using the global CDN, THREE is globally available.
-
+    // --- Global Variables (Game State) ---
     let scene, camera, renderer;
     let player, platforms = [], spikes = [], walls = [];
     let velocity = new THREE.Vector3();
@@ -92,6 +131,14 @@
     let win = false;
     let gameOver = false;
     let isPaused = true; 
+    let animationFrameId = null;
+
+    // --- Loaded Settings ---
+    let currentSettings = {
+        volume: 0.5, // 0.0 to 1.0
+        playerColor: '#FF8C00',
+        cameraDistance: 12,
+    };
 
     // --- Physics & Wall Jump Logic ---
     let canWallJump = false;
@@ -100,7 +147,6 @@
     let wallJumpCoyoteTimer = 0;
     const JUMP_INPUT_BUFFER_TIME = 0.15;
     let jumpInputBufferTimer = 0;
-    
     const WALL_JUMP_LOCKOUT_TIME = 0.2; 
     let horizontalLockoutTimer = 0; 
 
@@ -112,7 +158,6 @@
     const DASH_COOLDOWN = 0.7; 
     let dashCooldownTimer = 0;
     let dashDirection = new THREE.Vector3();
-    const defaultPlayerColor = 0xff8c00;
     const dashPlayerColor = 0x00ffff;
     
     // --- Gameplay Adjustments ---
@@ -120,7 +165,6 @@
     const WALL_JUMP_POWER = 8.5;
 
     // Orbit camera params
-    let orbitRadius = 12;
     let orbitAngleX = Math.PI / 4;
     let orbitAngleY = 0;
     let dragSensitivity = 0.005;
@@ -131,18 +175,75 @@
     const AudioContext = window.AudioContext || window.webkitAudioContext;
     let audioCtx;
     let backgroundMusic = null;
+    let musicGainNode = null; // New gain node for persistent volume control
 
     const C4 = 261.63, D4 = 293.66, E4 = 329.63, F4 = 349.23, G4 = 392.00, A4 = 440.00, B4 = 493.88, C5 = 523.25, D5 = 587.33;
+
+    // --- Settings Persistence Functions ---
+
+    function loadSettings() {
+        const savedSettings = localStorage.getItem('platformerSettings');
+        if (savedSettings) {
+            try {
+                const settings = JSON.parse(savedSettings);
+                currentSettings.volume = parseFloat(settings.volume || 0.5);
+                currentSettings.playerColor = settings.playerColor || '#FF8C00';
+                currentSettings.cameraDistance = parseFloat(settings.cameraDistance || 12);
+            } catch (e) {
+                console.error("Error loading settings from localStorage:", e);
+            }
+        }
+        // Apply loaded settings to the UI (if elements exist)
+        if (document.getElementById('volumeRange')) {
+            document.getElementById('volumeRange').value = currentSettings.volume * 100;
+        }
+        if (document.getElementById('playerColorPicker')) {
+            document.getElementById('playerColorPicker').value = currentSettings.playerColor;
+        }
+        if (document.getElementById('cameraDistanceRange')) {
+            document.getElementById('cameraDistanceRange').value = currentSettings.cameraDistance;
+            document.getElementById('cameraDistanceValue').textContent = currentSettings.cameraDistance.toFixed(0) + 'm';
+        }
+    }
+
+    function saveSettings() {
+        localStorage.setItem('platformerSettings', JSON.stringify(currentSettings));
+    }
+
+    function applySettings() {
+        // Apply Volume
+        if (musicGainNode) {
+            // Smoothly change the volume
+            musicGainNode.gain.setTargetAtTime(currentSettings.volume * 0.5, audioCtx.currentTime, 0.05); 
+        }
+
+        // Apply Player Color
+        if (player) {
+            player.material.color.set(currentSettings.playerColor);
+        }
+
+        // Apply Camera Distance
+        // This updates the orbitRadius variable used in updateCamera()
+        orbitRadius = currentSettings.cameraDistance;
+    }
+
+
+    // --- Audio Functions ---
 
     function playMusic() {
       if (!audioCtx) return;
       if (backgroundMusic) return;
 
+      // Initialize Gain Node if not done
+      if (!musicGainNode) {
+        musicGainNode = audioCtx.createGain();
+        // Set initial volume based on loaded settings
+        musicGainNode.gain.setValueAtTime(currentSettings.volume * 0.5, audioCtx.currentTime); 
+        musicGainNode.connect(audioCtx.destination);
+      }
+
       const tempo = 110; 
       const quarterNote = 60 / tempo;
-      const gain = audioCtx.createGain();
-      gain.gain.setValueAtTime(0.05, audioCtx.currentTime); 
-      gain.connect(audioCtx.destination);
 
       let sequence = [
         { note: C4, duration: quarterNote }, { note: E4, duration: quarterNote },
@@ -168,7 +269,8 @@
           let osc = audioCtx.createOscillator();
           osc.type = 'sine';
           osc.frequency.setValueAtTime(seq.note, now);
-          osc.connect(gain);
+          // Connect to the reusable musicGainNode
+          osc.connect(musicGainNode); 
           osc.start(now);
           osc.stop(now + seq.duration * 0.9);
         }
@@ -207,41 +309,44 @@
 
       osc.connect(filter);
       filter.connect(gainNode);
+      // Connect to the destination using the current volume setting
       gainNode.connect(audioCtx.destination);
+
+      let maxGain = currentSettings.volume * 0.5; // Sound effect volume scales with music volume
 
       switch(type) {
         case 'jump':
           osc.type = 'sine';
           osc.frequency.setValueAtTime(400, now);
           gainNode.gain.setValueAtTime(0, now);
-          gainNode.gain.linearRampToValueAtTime(0.2, now + 0.04);
+          gainNode.gain.linearRampToValueAtTime(maxGain * 0.4, now + 0.04);
           gainNode.gain.linearRampToValueAtTime(0, now + 0.18);
           break;
         case 'walljump':
           osc.type = 'triangle';
           osc.frequency.setValueAtTime(600, now);
           gainNode.gain.setValueAtTime(0, now);
-          gainNode.gain.linearRampToValueAtTime(0.25, now + 0.05);
+          gainNode.gain.linearRampToValueAtTime(maxGain * 0.5, now + 0.05);
           gainNode.gain.linearRampToValueAtTime(0, now + 0.25);
           break;
         case 'dash':
           osc.type = 'square';
           osc.frequency.setValueAtTime(800, now);
           gainNode.gain.setValueAtTime(0, now);
-          gainNode.gain.linearRampToValueAtTime(0.3, now + 0.05);
+          gainNode.gain.linearRampToValueAtTime(maxGain * 0.6, now + 0.05);
           gainNode.gain.linearRampToValueAtTime(0, now + 0.1);
           break;
         case 'win':
           osc.type = 'sine';
           osc.frequency.setValueAtTime(700, now); 
           gainNode.gain.setValueAtTime(0, now);
-          gainNode.gain.linearRampToValueAtTime(0.4, now + 0.05);
+          gainNode.gain.linearRampToValueAtTime(maxGain * 0.8, now + 0.05);
           gainNode.gain.linearRampToValueAtTime(0, now + 0.5);
           break;
         case 'gameover':
           osc.type = 'sine';
           osc.frequency.setValueAtTime(150, now);
-          gainNode.gain.setValueAtTime(0.4, now);
+          gainNode.gain.setValueAtTime(maxGain * 0.8, now);
           gainNode.gain.exponentialRampToValueAtTime(0.001, now + 0.7);
           break;
       }
@@ -250,7 +355,10 @@
       osc.stop(now + 0.5);
     }
 
+    // --- Game Logic Functions ---
+
     function init() {
+      // 1. Scene Setup
       scene = new THREE.Scene();
       scene.background = new THREE.Color(0x87ceeb);
 
@@ -271,25 +379,24 @@
       dir.shadow.mapSize.set(1024,1024);
       scene.add(dir);
 
+      // 2. Player Setup (Color applied via settings)
       const geom = new THREE.BoxGeometry(1,1,1);
-      const mat = new THREE.MeshStandardMaterial({color:defaultPlayerColor});
+      const mat = new THREE.MeshStandardMaterial({color: currentSettings.playerColor});
       player = new THREE.Mesh(geom, mat);
       player.castShadow = true;
       player.receiveShadow = true;
       player.position.set(0,2,0);
       scene.add(player);
 
-      // --- Level Design ---
+      // 3. Level Design (Remains the same)
       addPlatform(0, -1, 0, 20, 1, 20, 0x556b2f);
       const platformHeight = 0.5;
       let zPos = -2, yPos = 0;
 
-      // 1. Initial Jump Test
       zPos += 4 + 1.5;
       addPlatform(0, yPos, zPos, 5, platformHeight, 5, 0x8b4513);
       zPos += 5 + 1;
 
-      // 2. Climbing Wall 1 (Intro to Wall Jump)
       yPos += 1.2;
       let plat1 = addPlatform(-5, yPos, zPos, 4, platformHeight, 5, 0x8b4513);
       const wallMaterial = new THREE.MeshStandardMaterial({color: 0x444444});
@@ -303,12 +410,10 @@
       scene.add(tallRightWall);
       walls.push(tallRightWall);
       
-      // Dash jump target 
       zPos += 5 + 2;
       yPos += 2.5;
       addPlatform(5, yPos, zPos, 5, platformHeight, 5, 0x8b4513);
       
-      // 3. Low Ceiling Dash Section 
       yPos += 1;
       zPos += 5 + 1;
       addPlatform(10, yPos, zPos, 6, platformHeight, 3, 0x8b4513);
@@ -318,7 +423,6 @@
       zPos += 5;
       addPlatform(10, yPos, zPos, 5, platformHeight, 5, 0x8b4513);
 
-      // 4. Moving Platform Challenge with Spike
       yPos += 1;
       zPos += 5 + 2;
       let movingPlat = addPlatform(5, yPos, zPos, 4, platformHeight, 4, 0x1e90ff);
@@ -332,7 +436,6 @@
       scene.add(spike);
       spikes.push({mesh: spike, platform: movingPlat}); 
 
-      // --- 5. WALL CLIMB TOWER SECTION ---
       const towerHeight = 12; 
       const towerWidth = 5;  
       yPos = movingPlat.position.y + platformHeight/2 + 0.01;
@@ -350,19 +453,38 @@
       yPos += towerHeight + 0.5;
       addPlatform(5, yPos, zPos, 4, platformHeight, 4, 0x556b2f); 
 
-      // --- 6. Final Jump to Win ---
       yPos += 3;
       zPos += 5;
       const winP = addPlatform(5, yPos, zPos, 6, 0.5, 6, 0xffff00);
       winP.userData.win = true;
 
 
+      // 4. Event Listeners
       window.addEventListener('resize', onWindowResize);
-      window.addEventListener('keydown', e => {
+      window.addEventListener('keydown', handleKeyDown);
+      window.addEventListener('keyup', e => keys[e.code] = false);
+
+      renderer.domElement.addEventListener('mousemove', onMouseMove);
+
+      cameraTarget.copy(player.position);
+      cameraTarget.y += 0.5;
+      
+      // 5. Apply initial settings
+      applySettings();
+    }
+    
+    // Split keydown logic for easier pausing/settings
+    function handleKeyDown(e) {
         keys[e.code] = true;
         
         if (e.code === 'Escape' && !gameOver && !win) {
             isPaused ? resumeGame() : pauseGame();
+            e.preventDefault(); 
+            return;
+        }
+        
+        if (e.code === 'KeyG' && !gameOver && !win) {
+            showSettings();
             e.preventDefault(); 
             return;
         }
@@ -399,14 +521,8 @@
             
             velocity.y = Math.min(velocity.y, 0.5); 
         }
-      });
-      window.addEventListener('keyup', e => keys[e.code] = false);
-
-      renderer.domElement.addEventListener('mousemove', onMouseMove);
-
-      cameraTarget.copy(player.position);
-      cameraTarget.y += 0.5;
     }
+
 
     function addPlatform(x,y,z,w,h,d,color) {
       const g = new THREE.BoxGeometry(w,h,d);
@@ -467,7 +583,8 @@
             if(dashTimer <= 0) {
                 isDashing = false;
                 dashCooldownTimer = DASH_COOLDOWN;
-                player.material.color.setHex(defaultPlayerColor);
+                // Revert color to the current setting
+                player.material.color.set(currentSettings.playerColor);
                 velocity.x *= 0.1; 
                 velocity.z *= 0.1;
             } else {
@@ -654,7 +771,7 @@
         // 6. Check spikes collision (game over)
         for(let s of spikes){
             const mesh = s.mesh;
-            if(!mesh || !mesh.position) continue; // Safety check
+            if(!mesh || !mesh.position) continue; 
             
             const sp = mesh.position; 
             if(player.position.distanceTo(sp) < 0.7){
@@ -673,6 +790,7 @@
     function triggerGameOver() {
       if(gameOver) return;
       gameOver = true;
+      isPaused = true;
       stopMusic();
       playSound('gameover');
       document.getElementById('gameOverPanel').style.display = '';
@@ -680,6 +798,7 @@
       document.getElementById('startPanel').style.display = 'none';
       document.getElementById('winPanel').style.display = 'none';
       document.getElementById('pausePanel').style.display = 'none';
+      document.getElementById('settingsPanel').style.display = 'none';
       document.exitPointerLock();
     }
 
@@ -689,6 +808,8 @@
       cameraTarget.z = THREE.MathUtils.lerp(cameraTarget.z, player.position.z, CAMERA_SMOOTHING);
       
       orbitAngleX = Math.min(Math.max(0.1, orbitAngleX), Math.PI/2 - 0.1);
+      
+      // Use orbitRadius from settings
       const x = cameraTarget.x + orbitRadius * Math.cos(orbitAngleX) * Math.sin(orbitAngleY);
       const y = cameraTarget.y + orbitRadius * Math.sin(orbitAngleX);
       const z = cameraTarget.z + orbitRadius * Math.cos(orbitAngleX) * Math.cos(orbitAngleY);
@@ -696,7 +817,6 @@
       camera.lookAt(cameraTarget);
     }
 
-    let animationFrameId = null;
     function animate() {
       if (isPaused || gameOver || win) {
         if (animationFrameId !== null) {
@@ -713,21 +833,79 @@
       animationFrameId = requestAnimationFrame(animate);
     }
 
-    function pauseGame() {
-        if (isPaused || gameOver || win) return;
+    // --- UI/Pause/Settings Management ---
+    
+    // Helper to hide all main panels
+    function hideAllPanels() {
+        document.getElementById('startPanel').style.display = 'none';
+        document.getElementById('winPanel').style.display = 'none';
+        document.getElementById('gameOverPanel').style.display = 'none';
+        document.getElementById('pausePanel').style.display = 'none';
+        document.getElementById('settingsPanel').style.display = 'none';
+        document.getElementById('overlay').style.display = 'none';
+    }
+
+    function showSettings(cameFromPause = false) {
+        if (gameOver || win) return;
+        
+        // Hide whatever was visible and mark the game as paused
         isPaused = true;
         stopMusic();
+        
+        document.getElementById('startPanel').style.display = 'none';
+        document.getElementById('pausePanel').style.display = 'none';
+        document.getElementById('winPanel').style.display = 'none';
+        document.getElementById('gameOverPanel').style.display = 'none';
+        
+        document.getElementById('settingsPanel').style.display = '';
+        document.getElementById('overlay').style.display = '';
+        
+        // Use userData to remember where we came from (Start or Pause)
+        document.getElementById('settingsPanel').dataset.cameFromPause = cameFromPause;
+        
+        document.exitPointerLock();
+    }
+    
+    function closeSettings() {
+        const cameFromPause = document.getElementById('settingsPanel').dataset.cameFromPause === 'true';
+        
+        // Hide the settings panel
+        document.getElementById('settingsPanel').style.display = 'none';
+
+        if (cameFromPause) {
+            // If we came from the pause screen, show it again
+            pauseGame(true); // Re-show pause menu without exiting lock
+        } else {
+            // If we came from the start screen, show it again
+            document.getElementById('startPanel').style.display = '';
+            document.getElementById('overlay').style.display = '';
+        }
+    }
+
+
+    function pauseGame(isRevisiting = false) {
+        if (isPaused && !isRevisiting) return; // If already paused and not just revisiting the menu
+        
+        isPaused = true;
+        stopMusic();
+        
         document.getElementById('pausePanel').style.display = '';
         document.getElementById('overlay').style.display = '';
-        document.exitPointerLock(); 
+        document.getElementById('startPanel').style.display = 'none';
+        document.getElementById('winPanel').style.display = 'none';
+        document.getElementById('gameOverPanel').style.display = 'none';
+        document.getElementById('settingsPanel').style.display = 'none';
+        
+        if(!isRevisiting) document.exitPointerLock();
     }
 
     function resumeGame() {
         if (!isPaused) return;
         isPaused = false;
-        playMusic();
-        document.getElementById('pausePanel').style.display = 'none';
-        document.getElementById('overlay').style.display = 'none';
+        hideAllPanels();
+        
+        // Ensure settings are applied on resume in case they were changed
+        applySettings(); 
         
         if (animationFrameId === null) {
             clock.start();
@@ -749,13 +927,11 @@
       isDashing = false;
       dashCooldownTimer = 0;
       horizontalLockoutTimer = 0; 
-      player.material.color.setHex(defaultPlayerColor);
       
-      document.getElementById('winPanel').style.display = 'none';
-      document.getElementById('gameOverPanel').style.display = 'none';
-      document.getElementById('startPanel').style.display = 'none';
-      document.getElementById('pausePanel').style.display = 'none';
-      document.getElementById('overlay').style.display = 'none';
+      // Apply player color from settings
+      player.material.color.set(currentSettings.playerColor);
+      
+      hideAllPanels();
 
       clock.start();
       playMusic();
@@ -771,6 +947,7 @@
       document.getElementById('startPanel').style.display = 'none';
       document.getElementById('gameOverPanel').style.display = 'none';
       document.getElementById('pausePanel').style.display = 'none';
+      document.getElementById('settingsPanel').style.display = 'none';
       document.exitPointerLock();
     }
 
@@ -786,28 +963,71 @@
       orbitAngleX -= deltaY * dragSensitivity;
     }
 
+    // --- Initialization and Event Wiring ---
+
     window.addEventListener('DOMContentLoaded', () => {
+      // 1. Load Settings and Init Game
+      loadSettings();
       audioCtx = new AudioContext();
       init();
 
+      // 2. Wire UI Buttons
       document.getElementById('startBtn').addEventListener('click', () => {
         if(audioCtx.state === 'suspended') audioCtx.resume();
-        isPaused = false;
-        document.getElementById('overlay').style.display = 'none';
-        clock.start();
-        playMusic();
-        animate();
-        renderer.domElement.requestPointerLock(); 
+        resumeGame();
       });
       document.getElementById('resumeBtn').addEventListener('click', () => resumeGame());
       document.getElementById('pauseRestartBtn').addEventListener('click', () => respawn());
       document.getElementById('restartBtn').addEventListener('click', () => respawn());
       document.getElementById('gameOverRestartBtn').addEventListener('click', () => respawn());
       
-      window.addEventListener('keydown', e => {
-        if(e.code === 'KeyR' && (gameOver || win || isPaused)) respawn();
+      // Settings Buttons
+      document.getElementById('showSettingsBtn').addEventListener('click', () => showSettings(false));
+      document.getElementById('pauseSettingsBtn').addEventListener('click', () => showSettings(true));
+      document.getElementById('closeSettingsBtn').addEventListener('click', closeSettings);
+
+      // 3. Wire Setting Controls to update currentSettings and localStorage
+      
+      const volumeRange = document.getElementById('volumeRange');
+      volumeRange.addEventListener('input', () => {
+        currentSettings.volume = volumeRange.value / 100;
+        applySettings();
+        saveSettings();
+      });
+
+      const playerColorPicker = document.getElementById('playerColorPicker');
+      playerColorPicker.addEventListener('input', () => {
+        currentSettings.playerColor = playerColorPicker.value;
+        applySettings();
+        saveSettings();
       });
       
+      const cameraDistanceRange = document.getElementById('cameraDistanceRange');
+      const cameraDistanceValue = document.getElementById('cameraDistanceValue');
+      cameraDistanceRange.addEventListener('input', () => {
+        currentSettings.cameraDistance = parseFloat(cameraDistanceRange.value);
+        cameraDistanceValue.textContent = currentSettings.cameraDistance.toFixed(0) + 'm';
+        applySettings();
+        saveSettings();
+      });
+      
+      // 4. Global Keyboard Respawn/Settings
+      window.addEventListener('keydown', e => {
+        if(e.code === 'KeyR' && (gameOver || win || isPaused)) respawn();
+        if(e.code === 'KeyG' && !gameOver && !win) {
+            // Handle 'G' key to open/close settings
+            const settingsPanel = document.getElementById('settingsPanel');
+            if (settingsPanel.style.display === '') {
+                closeSettings();
+            } else {
+                // Check if we are starting a new game (startPanel is visible) or if we are paused
+                const fromPause = document.getElementById('pausePanel').style.display === '';
+                showSettings(fromPause);
+            }
+        }
+      });
+      
+      // 5. Pointer Lock Check (for auto-pause)
       document.addEventListener('pointerlockchange', () => {
         if (document.pointerLockElement !== renderer.domElement && !gameOver && !win && !isPaused) {
           pauseGame();
