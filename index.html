@@ -43,9 +43,9 @@ function init() {
   // Wall geometry
   const wallMaterial = new THREE.MeshStandardMaterial({color: 0x444444});
   const tallWallGeometry = new THREE.BoxGeometry(0.5, 8, 8);
-  const longWallGeometry = new THREE.BoxGeometry(10, 10, 0.5); // Para a torre de pulo
+  const longWallGeometry = new THREE.BoxGeometry(10, 10, 0.5); // Para a torre de pulo (definição mantida)
 
-  // --- Level Design (Easy version) ---
+  // --- Level Design ---
 
   // 1. Initial Jump Test
   zPos += 4 + 1.5;
@@ -101,7 +101,8 @@ function init() {
   const towerHeight = 12; // Altura da torre para o desafio
   const towerWidth = 5;  // Distância horizontal para pular (Wall Jump)
   
-  yPos += 1;
+  // Reset Y position for new platform entry
+  yPos = movingPlat.position.y + platformHeight/2 + 0.01;
   zPos += 8; // Move para a nova seção
 
   // Plataforma de entrada na torre
@@ -115,18 +116,18 @@ function init() {
 
   // Parede Esquerda
   let leftWall = new THREE.Mesh(new THREE.BoxGeometry(0.5, towerHeight, 5), wallMaterial);
-  leftWall.position.set(towerEntrance.position.x - (towerWidth/2) + 0.25, towerEntrance.position.y + towerHeight/2, towerEntrance.position.z);
+  leftWall.position.set(towerEntrance.position.x - (towerWidth/2) - 0.25, towerEntrance.position.y + towerHeight/2, towerEntrance.position.z);
   scene.add(leftWall);
   walls.push(leftWall);
 
   // Parede Direita
   let rightWall = new THREE.Mesh(new THREE.BoxGeometry(0.5, towerHeight, 5), wallMaterial);
-  rightWall.position.set(towerEntrance.position.x + (towerWidth/2) - 0.25, towerEntrance.position.y + towerHeight/2, towerEntrance.position.z);
+  rightWall.position.set(towerEntrance.position.x + (towerWidth/2) + 0.25, towerEntrance.position.y + towerHeight/2, towerEntrance.position.z);
   scene.add(rightWall);
   walls.push(rightWall);
   
   // Plataforma de Saída (no topo da torre)
-  yPos += towerHeight - 0.2;
+  yPos += towerHeight + 0.5;
   let towerExit = addPlatform(5, yPos, zPos, 4, platformHeight, 4, 0x556b2f); 
 
   // --- 6. Final Jump to Win ---
@@ -139,7 +140,6 @@ function init() {
 
 
   window.addEventListener('resize', onWindowResize);
-  // ... (o resto dos Event Listeners permanece o mesmo)
   window.addEventListener('keydown', e => {
     keys[e.code] = true;
     if(e.code === 'Space' || keys['Numpad0']){
