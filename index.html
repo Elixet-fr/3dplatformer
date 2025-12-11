@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>3D Platformer - Final Level</title>
+  <title>3D Platformer - Wall Jump Challenge</title>
   <style>
     html, body { height: 100%; margin: 0; overflow: hidden; }
     body { font-family: Arial, Helvetica, sans-serif; background: #87ceeb; }
@@ -23,7 +23,6 @@
       align-items: center;
       justify-content: center;
       z-index: 3;
-      /* Ensure the overlay is always visible until the game starts, using a light transparency */
       background: rgba(0,0,0,0.5); 
     }
     .panel {
@@ -51,7 +50,7 @@
   <div id="ui">
     WASD / Arrow keys: move &nbsp;&nbsp; Space: jump &nbsp;&nbsp; **Shift: dash** &nbsp;&nbsp; R: respawn<br>
     Mouse drag: rotate camera<br>
-    Wall jump: jump again while touching a wall in air.
+    **Challenge:** Use the wall jump (jump while sliding on a wall) to climb the tower.
   </div>
   <div id="overlay">
     <div class="panel" id="startPanel">
@@ -102,7 +101,7 @@
     const defaultPlayerColor = 0xff8c00;
     const dashPlayerColor = 0x00ffff;
     
-    // --- Gameplay Adjustments (Easy) ---
+    // --- Gameplay Adjustments ---
     const JUMP_POWER = 7.0;
     const WALL_JUMP_POWER = 8.5;
 
@@ -289,10 +288,9 @@
       const spikeGeometry = new THREE.ConeGeometry(0.5, 1, 4);
       const spikeMaterial = new THREE.MeshStandardMaterial({color: 0x666666});
 
-      // Wall geometry
+      // Wall geometry definitions
       const wallMaterial = new THREE.MeshStandardMaterial({color: 0x444444});
       const tallWallGeometry = new THREE.BoxGeometry(0.5, 8, 8);
-      // Removed the redundant 'longWallGeometry' definition
 
       // --- Level Design ---
 
@@ -454,8 +452,10 @@
 
     function handleJump(isWallJump, wallDir) {
         if(isWallJump) {
+            // SMB Wall Jump: set horizontal velocity AWAY from the wall (-8 * wallDir)
             velocity.y = WALL_JUMP_POWER;
             velocity.x = -8 * wallDir;
+            velocity.z = 0; // Clear Z velocity to focus the jump on X
             playSound('walljump');
             canWallJump = false;
             wallJumpCoyoteTimer = 0;
@@ -468,195 +468,211 @@
     }
 
     function physics(delta) {
-      if(gameOver || win) return;
+        if(gameOver || win) return;
 
-      // Update timers
-      if (!canWallJump && !onGround) {
-        wallJumpCoyoteTimer = Math.max(0, wallJumpCoyoteTimer - delta);
-      }
-      jumpInputBufferTimer = Math.max(0, jumpInputBufferTimer - delta);
-      dashCooldownTimer = Math.max(0, dashCooldownTimer - delta);
-
-      // Handle Dash Logic 
-      if(isDashing) {
-          dashTimer -= delta;
-          if(dashTimer <= 0) {
-              isDashing = false;
-              dashCooldownTimer = DASH_COOLDOWN;
-              player.material.color.setHex(defaultPlayerColor);
-              velocity.x *= 0.5; 
-              velocity.z *= 0.5;
-          } else {
-              player.position.addScaledVector(dashDirection, DASH_SPEED * delta);
-              onGround = false;
-              return; 
-          }
-      }
-
-      let isTouchingWall = false;
-      let currentWallDir = 0;
-
-      // 1. Horizontal Movement 
-      let dirX = 0, dirZ = 0;
-      if(keys['KeyW'] || keys['ArrowUp']) dirZ -= 1;
-      if(keys['KeyS'] || keys['ArrowDown']) dirZ += 1;
-      if(keys['KeyA'] || keys['ArrowLeft']) dirX -= 1;
-      if(keys['KeyD'] || keys['ArrowRight']) dirX += 1;
-
-      const speed = 6;
-      if(dirX !== 0 || dirZ !== 0) {
-        let angle = orbitAngleY;
-        let forward = new THREE.Vector3(Math.sin(angle), 0, Math.cos(angle));
-        let right = new THREE.Vector3(Math.cos(angle), 0, -Math.sin(angle));
-        let moveDir = new THREE.Vector3();
-        moveDir.addScaledVector(forward, dirZ);
-        moveDir.addScaledVector(right, dirX);
-        moveDir.normalize();
-        player.position.addScaledVector(moveDir, speed * delta);
-      }
-      
-      // 2. Wall detection for wall jump
-      const pPos = player.position.clone();
-      const half = {x:0.5,y:0.5,z:0.5};
-
-      for(let w of walls){
-        const wPos = w.position;
-        const wSize = {x:w.geometry.parameters.width/2, y:w.geometry.parameters.height/2, z:w.geometry.parameters.depth/2};
-        if(aabbIntersect(pPos, half, wPos, wSize)){
-          let diffX = pPos.x - wPos.x;
-          if(Math.abs(diffX) > 0.01){
-            isTouchingWall = true;
-            currentWallDir = diffX > 0 ? 1 : -1;
-            break;
-          }
+        // Update timers
+        if (!canWallJump && !onGround) {
+            wallJumpCoyoteTimer = Math.max(0, wallJumpCoyoteTimer - delta);
         }
-      }
+        jumpInputBufferTimer = Math.max(0, jumpInputBufferTimer - delta);
+        dashCooldownTimer = Math.max(0, dashCooldownTimer - delta);
 
-      if (isTouchingWall && !onGround) {
-        canWallJump = true;
-        wallJumpDirection = currentWallDir;
-        wallJumpCoyoteTimer = WALL_JUMP_COYOTE_TIME;
+        // Handle Dash Logic 
+        if(isDashing) {
+            dashTimer -= delta;
+            if(dashTimer <= 0) {
+                isDashing = false;
+                dashCooldownTimer = DASH_COOLDOWN;
+                player.material.color.setHex(defaultPlayerColor);
+                velocity.x *= 0.5; 
+                velocity.z *= 0.5;
+            } else {
+                player.position.addScaledVector(dashDirection, DASH_SPEED * delta);
+                onGround = false;
+                return; 
+            }
+        }
+
+        let isTouchingWall = false;
+        let currentWallDir = 0;
+
+        // 1. Horizontal Movement 
+        let dirX = 0, dirZ = 0;
+        if(keys['KeyW'] || keys['ArrowUp']) dirZ -= 1;
+        if(keys['KeyS'] || keys['ArrowDown']) dirZ += 1;
+        if(keys['KeyA'] || keys['ArrowLeft']) dirX -= 1;
+        if(keys['KeyD'] || keys['ArrowRight']) dirX += 1;
+
+        const speed = 6;
+        if(dirX !== 0 || dirZ !== 0) {
+            let angle = orbitAngleY;
+            let forward = new THREE.Vector3(Math.sin(angle), 0, Math.cos(angle));
+            let right = new THREE.Vector3(Math.cos(angle), 0, -Math.sin(angle));
+            let moveDir = new THREE.Vector3();
+            moveDir.addScaledVector(forward, dirZ);
+            moveDir.addScaledVector(right, dirX);
+            moveDir.normalize();
+            player.position.addScaledVector(moveDir, speed * delta);
+        }
         
-        // Wall Slide
-        if (velocity.y < 0) {
-            velocity.y = Math.max(velocity.y, -1.5);
-        }
-      } else if (!isTouchingWall && canWallJump) {
-          canWallJump = false;
-      } else if (onGround) {
-          canWallJump = false;
-          wallJumpCoyoteTimer = 0;
-      }
-      
-      // 3. Jump Execution
-      const isJumpPressed = (keys['Space'] || keys['Numpad0']);
-      const canJump = onGround && isJumpPressed;
-      const canWallJumpNow = isTouchingWall && jumpInputBufferTimer > 0;
-      const canCoyoteJump = wallJumpCoyoteTimer > 0 && isJumpPressed && !onGround && !isTouchingWall;
+        // 2. Wall detection for wall jump
+        const pPos = player.position.clone();
+        const half = {x:0.5,y:0.5,z:0.5};
 
-      if(canJump){
-        handleJump(false, 0);
-      } else if(canWallJumpNow){
-        handleJump(true, currentWallDir);
-      } else if(canCoyoteJump){
-        handleJump(true, wallJumpDirection); 
-      }
+        for(let w of walls){
+            const wPos = w.position;
+            const wSize = {x:w.geometry.parameters.width/2, y:w.geometry.parameters.height/2, z:w.geometry.parameters.depth/2};
+            if(aabbIntersect(pPos, half, wPos, wSize)){
+                let diffX = pPos.x - wPos.x;
+                let diffZ = pPos.z - wPos.z;
+                
+                // Prioritize X-axis for wall jump detection in the current level layout
+                if (wSize.z < wSize.x) { // Wall is wider in X, so normal is Z (like the back wall)
+                    if(Math.abs(diffZ) > 0.01){
+                        isTouchingWall = true;
+                        currentWallDir = diffZ > 0 ? 1 : -1;
+                        // For the tower (X-aligned walls), we check X collision
+                    }
+                } else { // Wall is wider in Z, so normal is X (like the side walls)
+                    if(Math.abs(diffX) > 0.01){
+                        isTouchingWall = true;
+                        currentWallDir = diffX > 0 ? 1 : -1;
+                    }
+                }
 
-      // Apply Gravity
-      velocity.y -= 9.8 * delta;
-
-      // Apply velocity X/Z (from wall jump or previous dash)
-      player.position.x += velocity.x * delta;
-      velocity.x *= 0.8; 
-      player.position.z += velocity.z * delta; 
-      velocity.z *= 0.8;
-
-      player.position.y += velocity.y * delta;
-
-      onGround = false;
-
-      // 4. Platform Collision
-      for(let pl of platforms) {
-        if(pl.userData.moving){
-          const t = performance.now()/1000;
-          const m = pl.userData.moving;
-          if(m.axis === 'x') pl.position.x = m.base + Math.sin(t*m.speed) * m.amplitude;
-          else pl.position.z = m.base + Math.sin(t*m.speed) * m.amplitude;
-        }
-        const size = {x:pl.userData.size.x/2, y:pl.userData.size.y/2, z:pl.userData.size.z/2};
-        if(aabbIntersect(pPos, half, pl.position, size)) {
-          const playerBottom = player.position.y - 0.5;
-          const plTop = pl.position.y + size.y;
-          const penetration = plTop - playerBottom;
-          if(velocity.y <= 0 && penetration > 0 && Math.abs(player.position.x - pl.position.x) < (size.x+half.x) && Math.abs(player.position.z - pl.position.z) < (size.z+half.z)){
-            player.position.y += penetration + 0.001;
-            velocity.y = 0;
-            onGround = true;
-            velocity.x = 0;
-            velocity.z = 0;
-
-            if(pl.userData.moving){
-              player.position.x += (pl.position.x - (pl.userData._lastX ?? pl.position.x));
-              player.position.z += (pl.position.z - (pl.userData._lastZ ?? pl.position.z));
+                if (isTouchingWall) break;
             }
+        }
 
-            if(pl.userData.win && !win){
-              win = true;
-              playSound('win');
-              stopMusic();
-              showWin();
-            }
+        if (isTouchingWall && !onGround) {
+            canWallJump = true;
+            wallJumpDirection = currentWallDir;
+            wallJumpCoyoteTimer = WALL_JUMP_COYOTE_TIME;
             
+            // Wall Slide
+            if (velocity.y < 0) {
+                velocity.y = Math.max(velocity.y, -1.5);
+            }
+        } else if (!isTouchingWall && canWallJump) {
+            canWallJump = false;
+        } else if (onGround) {
             canWallJump = false;
             wallJumpCoyoteTimer = 0;
-            dashCooldownTimer = 0; 
-          }
-          pl.userData._lastX = pl.position.x;
-          pl.userData._lastZ = pl.position.z;
         }
-      }
+        
+        // 3. Jump Execution
+        const isJumpPressed = (keys['Space'] || keys['Numpad0']);
+        const canJump = onGround && isJumpPressed;
+        const canWallJumpNow = isTouchingWall && jumpInputBufferTimer > 0;
+        const canCoyoteJump = wallJumpCoyoteTimer > 0 && isJumpPressed && !onGround && !isTouchingWall;
 
-      // 5. Collide with walls
-      for(let w of walls){
-        const wPos = w.position;
-        const wSize = {x:w.geometry.parameters.width/2, y:w.geometry.parameters.height/2, z:w.geometry.parameters.depth/2};
-        if(aabbIntersect(player.position, half, wPos, wSize)){
-          let diffX = player.position.x - wPos.x;
-          let diffZ = player.position.z - wPos.z;
-          
-          if(Math.abs(diffX) > Math.abs(diffZ)) {
-              if(diffX > 0){
-                player.position.x = wPos.x + wSize.x + 0.5 + 0.01;
-                velocity.x = Math.max(velocity.x, 0);
-              } else {
-                player.position.x = wPos.x - wSize.x - 0.5 - 0.01;
-                velocity.x = Math.min(velocity.x, 0);
-              }
-          } else {
-              if(diffZ > 0){
-                player.position.z = wPos.z + wSize.z + 0.5 + 0.01;
-                velocity.z = Math.max(velocity.z, 0);
-              } else {
-                player.position.z = wPos.z - wSize.z - 0.5 - 0.01;
-                velocity.z = Math.min(velocity.z, 0);
-              }
-          }
+        if(canJump){
+            handleJump(false, 0);
+        } else if(canWallJumpNow){
+            handleJump(true, currentWallDir);
+        } else if(canCoyoteJump){
+            handleJump(true, wallJumpDirection); 
         }
-      }
 
-      // 6. Check spikes collision (game over)
-      for(let s of spikes){
-        const sp = s.mesh.position;
-        if(player.position.distanceTo(sp) < 0.7){
-          triggerGameOver();
-          break;
+        // Apply Gravity
+        velocity.y -= 9.8 * delta;
+
+        // Apply velocity X/Z (from wall jump or previous dash)
+        player.position.x += velocity.x * delta;
+        velocity.x *= 0.8; 
+        player.position.z += velocity.z * delta; 
+        velocity.z *= 0.8;
+
+        player.position.y += velocity.y * delta;
+
+        onGround = false;
+
+        // 4. Platform Collision
+        for(let pl of platforms) {
+            if(pl.userData.moving){
+                const t = performance.now()/1000;
+                const m = pl.userData.moving;
+                if(m.axis === 'x') pl.position.x = m.base + Math.sin(t*m.speed) * m.amplitude;
+                else pl.position.z = m.base + Math.sin(t*m.speed) * m.amplitude;
+            }
+            const size = {x:pl.userData.size.x/2, y:pl.userData.size.y/2, z:pl.userData.size.z/2};
+            if(aabbIntersect(pPos, half, pl.position, size)) {
+                const playerBottom = player.position.y - 0.5;
+                const plTop = pl.position.y + size.y;
+                const penetration = plTop - playerBottom;
+                if(velocity.y <= 0 && penetration > 0 && Math.abs(player.position.x - pl.position.x) < (size.x+half.x) && Math.abs(player.position.z - pl.position.z) < (size.z+half.z)){
+                    player.position.y += penetration + 0.001;
+                    velocity.y = 0;
+                    onGround = true;
+                    velocity.x = 0;
+                    velocity.z = 0;
+
+                    if(pl.userData.moving){
+                        player.position.x += (pl.position.x - (pl.userData._lastX ?? pl.position.x));
+                        player.position.z += (pl.position.z - (pl.userData._lastZ ?? pl.position.z));
+                    }
+
+                    if(pl.userData.win && !win){
+                        win = true;
+                        playSound('win');
+                        stopMusic();
+                        showWin();
+                    }
+                    
+                    canWallJump = false;
+                    wallJumpCoyoteTimer = 0;
+                    dashCooldownTimer = 0; 
+                }
+                pl.userData._lastX = pl.position.x;
+                pl.userData._lastZ = pl.position.z;
+            }
         }
-      }
 
-      // Keep player above the floor plane
-      if(player.position.y < -5){
-        triggerGameOver();
-      }
+        // 5. Collide with walls (Improved Resolution)
+        for(let w of walls){
+            const wPos = w.position;
+            const wSize = {x:w.geometry.parameters.width/2, y:w.geometry.parameters.height/2, z:w.geometry.parameters.depth/2};
+            if(aabbIntersect(player.position, half, wPos, wSize)){
+                let diffX = player.position.x - wPos.x;
+                let diffZ = player.position.z - wPos.z;
+                
+                const penX = (wSize.x + half.x) - Math.abs(diffX);
+                const penZ = (wSize.z + half.z) - Math.abs(diffZ);
+
+                // Resolve collision on the axis with the least penetration (the 'fastest' axis to push out)
+                if(penX < penZ) {
+                    if(diffX > 0){
+                        player.position.x += penX + 0.01; 
+                        velocity.x = Math.max(velocity.x, 0); 
+                    } else {
+                        player.position.x -= penX + 0.01;
+                        velocity.x = Math.min(velocity.x, 0);
+                    }
+                } else {
+                    if(diffZ > 0){
+                        player.position.z += penZ + 0.01;
+                        velocity.z = Math.max(velocity.z, 0);
+                    } else {
+                        player.position.z -= penZ + 0.01;
+                        velocity.z = Math.min(velocity.z, 0);
+                    }
+                }
+            }
+        }
+
+        // 6. Check spikes collision (game over)
+        for(let s of spikes){
+            const sp = s.mesh.position;
+            if(player.position.distanceTo(sp) < 0.7){
+                triggerGameOver();
+                break;
+            }
+        }
+
+        // Keep player above the floor plane
+        if(player.position.y < -5){
+            triggerGameOver();
+        }
     }
 
     function triggerGameOver() {
@@ -744,12 +760,14 @@
     }
 
     window.addEventListener('DOMContentLoaded', () => {
+      // Initialize Audio Context when a user interaction occurs
       audioCtx = new AudioContext();
       init();
       cameraTarget.copy(player.position);
       cameraTarget.y += 0.5;
 
       document.getElementById('startBtn').addEventListener('click', () => {
+        // Resume audio context on click (required for most browsers)
         if(audioCtx.state === 'suspended') audioCtx.resume();
         document.getElementById('overlay').style.display = 'none';
         clock.start();
