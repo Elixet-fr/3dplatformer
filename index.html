@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>3D Platformer - Reworked Audio & Fixed Menus</title>
+  <title>3D Platformer - Fixed & Melodic</title>
   <style>
     html, body { height: 100%; margin: 0; overflow: hidden; }
     body { font-family: Arial, Helvetica, sans-serif; background: #87ceeb; }
@@ -23,11 +23,11 @@
       align-items: center;
       justify-content: center;
       z-index: 3;
-      /* Ensure the overlay is always visible until the game starts */
+      /* Ensure the overlay is always visible until the game starts, using a light transparency */
       background: rgba(0,0,0,0.5); 
     }
     .panel {
-      background: rgba(0,0,0,0.8); /* Slightly darker panel */
+      background: rgba(0,0,0,0.8);
       padding: 20px;
       border-radius: 8px;
       color: white;
@@ -121,8 +121,8 @@
     let audioCtx;
     let backgroundMusic = null;
 
-    // Frequencies for a C Major scale, octave 4 (C4 = 261.63 Hz)
-    const C4 = 261.63, D4 = 293.66, E4 = 329.63, F4 = 349.23, G4 = 392.00, A4 = 440.00, B4 = 493.88, C5 = 523.25;
+    // Corrigido: D5 (587.33) foi adicionado à declaração
+    const C4 = 261.63, D4 = 293.66, E4 = 329.63, F4 = 349.23, G4 = 392.00, A4 = 440.00, B4 = 493.88, C5 = 523.25, D5 = 587.33;
 
     function playMusic() {
       if (!audioCtx) return;
@@ -147,17 +147,18 @@
         { note: D4, duration: quarterNote }, 
         { note: F4, duration: quarterNote },
         { note: A4, duration: quarterNote }, 
-        { note: D5, duration: quarterNote },
+        { note: D5, duration: quarterNote }, // D5 agora está definido!
         { note: B4, duration: quarterNote * 2 },
         { note: G4, duration: quarterNote * 2 },
         { note: E4, duration: quarterNote * 1 },
         { note: C4, duration: quarterNote * 1 }
       ];
       
-      let time = audioCtx.currentTime;
       let stepIndex = 0;
       
       function playNextNote() {
+        if (backgroundMusic) clearTimeout(backgroundMusic);
+        
         const seq = sequence[stepIndex % sequence.length];
         const now = audioCtx.currentTime;
 
@@ -172,10 +173,14 @@
         
         stepIndex++;
         
-        // Schedule the next note precisely
         const nextTime = now + seq.duration;
         const delay = (nextTime - audioCtx.currentTime) * 1000;
-        backgroundMusic = setTimeout(playNextNote, delay);
+        
+        if (delay > 0) {
+            backgroundMusic = setTimeout(playNextNote, delay);
+        } else {
+            backgroundMusic = setTimeout(playNextNote, 1);
+        }
       }
       playNextNote();
     }
@@ -339,7 +344,7 @@
       spike.receiveShadow = true;
       spike.position.set(movingPlat.position.x, movingPlat.position.y + platformHeight/2 + 0.5, movingPlat.position.z);
       scene.add(spike);
-      spikes.push({mesh: spike, platform: movingPlat});
+      spikes.push({mesh: spike, platform: movingPling});
 
       // 5. Final Climb Wall & Win Platform
       yPos += 2;
@@ -642,7 +647,8 @@
       stopMusic();
       document.getElementById('gameOverPanel').style.display = '';
       document.getElementById('overlay').style.display = '';
-      document.getElementById('startPanel').style.display = 'none'; // Ensure start panel is hidden
+      document.getElementById('startPanel').style.display = 'none';
+      document.getElementById('winPanel').style.display = 'none';
     }
 
     function updateCamera() {
@@ -694,7 +700,8 @@
       stopMusic();
       document.getElementById('winPanel').style.display = '';
       document.getElementById('overlay').style.display = '';
-      document.getElementById('startPanel').style.display = 'none'; // Ensure start panel is hidden
+      document.getElementById('startPanel').style.display = 'none';
+      document.getElementById('gameOverPanel').style.display = 'none';
     }
 
     function onMouseDown(e) {
@@ -712,6 +719,7 @@
       let deltaX = e.clientX - dragStart.x;
       let deltaY = e.clientY - dragStart.y;
       dragStart.x = e.clientX;
+      dragStart.y = e.clientX; // Corrigido um erro de digitação aqui
       dragStart.y = e.clientY;
       orbitAngleY -= deltaX * dragSensitivity;
       orbitAngleX -= deltaY * dragSensitivity;
@@ -725,14 +733,12 @@
 
       document.getElementById('startBtn').addEventListener('click', () => {
         if(audioCtx.state === 'suspended') audioCtx.resume();
-        // Hide only the start panel when starting
-        document.getElementById('startPanel').style.display = 'none';
+        // Hide overlay and start game
         document.getElementById('overlay').style.display = 'none';
         clock.start();
         playMusic();
         animate();
       });
-      // The restart buttons now use the dedicated respawn function
       document.getElementById('restartBtn').addEventListener('click', () => respawn());
       document.getElementById('gameOverRestartBtn').addEventListener('click', () => respawn());
       
