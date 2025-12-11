@@ -86,7 +86,7 @@
     let clock = new THREE.Clock();
     let win = false;
     let gameOver = false;
-    let isPaused = true; // Start paused
+    let isPaused = true; 
 
     // --- Physics & Wall Jump Logic ---
     let canWallJump = false;
@@ -96,7 +96,6 @@
     const JUMP_INPUT_BUFFER_TIME = 0.15;
     let jumpInputBufferTimer = 0;
     
-    // Horizontal Lockout to prevent input cancelling wall jump push
     const WALL_JUMP_LOCKOUT_TIME = 0.2; 
     let horizontalLockoutTimer = 0; 
 
@@ -128,11 +127,11 @@
     let audioCtx;
     let backgroundMusic = null;
 
-    const C4 = 261.63, E4 = 329.63, F4 = 349.23, G4 = 392.00, A4 = 440.00, B4 = 493.88, C5 = 523.25, D5 = 587.33;
+    const C4 = 261.63, D4 = 293.66, E4 = 329.63, F4 = 349.23, G4 = 392.00, A4 = 440.00, B4 = 493.88, C5 = 523.25, D5 = 587.33;
 
     function playMusic() {
       if (!audioCtx) return;
-      if (backgroundMusic) return; // Already playing
+      if (backgroundMusic) return;
 
       const tempo = 110; 
       const quarterNote = 60 / tempo;
@@ -155,7 +154,7 @@
       
       function playNextNote() {
         if (backgroundMusic) clearTimeout(backgroundMusic);
-        if (isPaused || gameOver || win) return; // Stop if paused or game ended
+        if (isPaused || gameOver || win) return; 
         
         const seq = sequence[stepIndex % sequence.length];
         const now = audioCtx.currentTime;
@@ -192,7 +191,7 @@
 
     function playSound(type) {
       if(!audioCtx || isPaused || gameOver || win) return;
-      // ... (sound implementation remains the same)
+      
       const now = audioCtx.currentTime;
       let osc = audioCtx.createOscillator();
       let gainNode = audioCtx.createGain();
@@ -275,7 +274,7 @@
       player.position.set(0,2,0);
       scene.add(player);
 
-      // --- Level Design (Remains the same) ---
+      // --- Level Design ---
       addPlatform(0, -1, 0, 20, 1, 20, 0x556b2f);
       const platformHeight = 0.5;
       let zPos = -2, yPos = 0;
@@ -312,7 +311,7 @@
 
       yPos += 0.5;
       zPos += 5;
-      let movingPlatStart = addPlatform(10, yPos, zPos, 5, platformHeight, 5, 0x8b4513);
+      addPlatform(10, yPos, zPos, 5, platformHeight, 5, 0x8b4513);
 
       // 4. Moving Platform Challenge with Spike
       yPos += 1;
@@ -326,7 +325,7 @@
       spike.receiveShadow = true;
       spike.position.set(movingPlat.position.x, movingPlat.position.y + platformHeight/2 + 0.5, movingPlat.position.z);
       scene.add(spike);
-      spikes.push({mesh: spike, platform: movingPlat});
+      spikes.push({mesh: spike, platform: movingPlat}); // Spike initialized correctly
 
       // --- 5. WALL CLIMB TOWER SECTION ---
       const towerHeight = 12; 
@@ -498,46 +497,7 @@
         const pPos = player.position.clone();
         const half = {x:0.5,y:0.5,z:0.5};
         
-        // 2. Wall detection for wall jump (unchanged)
-        // ... (snip) ...
-
-        // Apply Gravity
-        velocity.y -= 9.8 * delta;
-
-        // Apply velocity X/Z (from wall jump or dash)
-        player.position.x += velocity.x * delta;
-        
-        // FIX: Only damp horizontal movement if NOT in lockout (to feel the wall jump push)
-        if (horizontalLockoutTimer === 0) {
-             velocity.x *= 0.8; 
-        }
-
-        player.position.z += velocity.z * delta; 
-        if (horizontalLockoutTimer === 0) {
-             velocity.z *= 0.8;
-        }
-
-
-        player.position.y += velocity.y * delta;
-
-        onGround = false;
-
-        // 4. Platform Collision (unchanged)
-        // ... (snip) ...
-
-        // 5. Collide with walls (unchanged)
-        // ... (snip) ...
-
-        // 6. Check spikes collision (game over - unchanged)
-        // ... (snip) ...
-
-        // Keep player above the floor plane (unchanged)
-        // ... (snip) ...
-    }
-    
-    // (Rest of the physics function code - kept for completeness)
-    {
-        // ... (Start of section 2. Wall detection)
+        // 2. Wall detection for wall jump (Standard checks)
         let isTouchingWall = false;
         let currentWallDir = 0;
 
@@ -593,10 +553,28 @@
             handleJump(true, wallJumpDirection); 
         }
 
-        // Apply Gravity (already done above)
-        // Apply velocity X/Z/Y (already done above)
+        // Apply Gravity
+        velocity.y -= 9.8 * delta;
 
-        // 4. Platform Collision
+        // Apply velocity X/Z (from wall jump or dash)
+        player.position.x += velocity.x * delta;
+        
+        // WALL JUMP FIX: Only damp horizontal movement if NOT in lockout
+        if (horizontalLockoutTimer === 0) {
+             velocity.x *= 0.8; 
+        }
+
+        player.position.z += velocity.z * delta; 
+        if (horizontalLockoutTimer === 0) {
+             velocity.z *= 0.8;
+        }
+
+
+        player.position.y += velocity.y * delta;
+
+        onGround = false;
+
+        // 4. Platform Collision (Standard checks)
         for(let pl of platforms) {
             if(pl.userData.moving){
                 const t = performance.now()/1000;
@@ -637,7 +615,7 @@
             }
         }
 
-        // 5. Collide with walls
+        // 5. Collide with walls (Robust resolution)
         for(let w of walls){
             const wPos = w.position;
             const wSize = {x:w.geometry.parameters.width/2, y:w.geometry.parameters.height/2, z:w.geometry.parameters.depth/2};
@@ -670,7 +648,8 @@
 
         // 6. Check spikes collision (game over)
         for(let s of spikes){
-            const sp = s.mesh.position;
+            // THIS LINE IS CORRECT: ACCESSES THE MESH'S POSITION
+            const sp = s.mesh.position; 
             if(player.position.distanceTo(sp) < 0.7){
                 triggerGameOver();
                 break;
@@ -681,7 +660,7 @@
         if(player.position.y < -5){
             triggerGameOver();
         }
-    } // End of full physics function 
+    }
     
 
     function triggerGameOver() {
@@ -694,6 +673,7 @@
       document.getElementById('startPanel').style.display = 'none';
       document.getElementById('winPanel').style.display = 'none';
       document.getElementById('pausePanel').style.display = 'none';
+      document.exitPointerLock();
     }
 
     function updateCamera() {
@@ -712,6 +692,7 @@
     let animationFrameId = null;
     function animate() {
       if (isPaused || gameOver || win) {
+        cancelAnimationFrame(animationFrameId);
         animationFrameId = null;
         return;
       }
@@ -739,7 +720,6 @@
         document.getElementById('pausePanel').style.display = 'none';
         document.getElementById('overlay').style.display = 'none';
         
-        // Resume the game loop
         if (!animationFrameId) {
             clock.start();
             animate();
@@ -782,6 +762,7 @@
       document.getElementById('startPanel').style.display = 'none';
       document.getElementById('gameOverPanel').style.display = 'none';
       document.getElementById('pausePanel').style.display = 'none';
+      document.exitPointerLock();
     }
 
     function onMouseMove(e) {
