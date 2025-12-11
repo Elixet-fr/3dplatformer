@@ -49,7 +49,7 @@
 <body>
   <div id="ui">
     WASD / Arrow keys: move &nbsp;&nbsp; Space: jump &nbsp;&nbsp; **Shift: dash** &nbsp;&nbsp; R: respawn<br>
-    Mouse drag: rotate camera<br>
+    Mouse move: rotate camera<br>
     **Challenge:** Use the wall jump (jump while sliding on a wall) to climb the tower.
   </div>
   <div id="overlay">
@@ -109,9 +109,9 @@
     let orbitRadius = 12;
     let orbitAngleX = Math.PI / 4;
     let orbitAngleY = 0;
-    let isDragging = false;
-    let dragStart = {x: 0, y: 0};
-    let dragSensitivity = 0.005;
+    
+    // ❌ REMOVED: isDragging, dragStart, dragSensitivity are no longer needed
+    let dragSensitivity = 0.005; // Keep this value for rotation speed
     const cameraTarget = new THREE.Vector3();
     const CAMERA_SMOOTHING = 0.1;
 
@@ -408,6 +408,7 @@
                 dashDirection.addScaledVector(right, dirX);
                 dashDirection.normalize();
             } else {
+                // If player is standing still, dash in the direction the camera is facing
                 dashDirection.copy(forward);
             }
 
@@ -421,9 +422,13 @@
       });
       window.addEventListener('keyup', e => keys[e.code] = false);
 
-      renderer.domElement.addEventListener('mousedown', onMouseDown);
-      window.addEventListener('mouseup', onMouseUp);
-      window.addEventListener('mousemove', onMouseMove);
+      // --- Mouse handlers for rotation (No hold required) ---
+      renderer.domElement.addEventListener('mousemove', onMouseMove);
+      // Removed mousedown/mouseup events
+
+      // Initialize the camera start position
+      cameraTarget.copy(player.position);
+      cameraTarget.y += 0.5;
     }
 
     function addPlatform(x,y,z,w,h,d,color) {
@@ -452,10 +457,10 @@
 
     function handleJump(isWallJump, wallDir) {
         if(isWallJump) {
-            // SMB Wall Jump: set horizontal velocity AWAY from the wall (-8 * wallDir)
+            // SMB Wall Jump: set horizontal velocity AWAY from the wall
             velocity.y = WALL_JUMP_POWER;
             velocity.x = -8 * wallDir;
-            velocity.z = 0; // Clear Z velocity to focus the jump on X
+            velocity.z = 0; 
             playSound('walljump');
             canWallJump = false;
             wallJumpCoyoteTimer = 0;
@@ -477,47 +482,56 @@
         jumpInputBufferTimer = Math.max(0, jumpInputBufferTimer - delta);
         dashCooldownTimer = Math.max(0, dashCooldownTimer - delta);
 
-        // Handle Dash Logic 
+        // --- Handle Dash Logic (FIXED FOR CLIPPING) --- 
         if(isDashing) {
             dashTimer -= delta;
             if(dashTimer <= 0) {
+                // End dash
                 isDashing = false;
                 dashCooldownTimer = DASH_COOLDOWN;
                 player.material.color.setHex(defaultPlayerColor);
-                velocity.x *= 0.5; 
-                velocity.z *= 0.5;
+                
+                // Dampen speed greatly at the end of the dash
+                velocity.x *= 0.1; 
+                velocity.z *= 0.1;
+
             } else {
-                player.position.addScaledVector(dashDirection, DASH_SPEED * delta);
-                onGround = false;
-                return; 
+                // Set velocity based on dash direction to be handled by collision below
+                velocity.x = dashDirection.x * DASH_SPEED;
+                velocity.z = dashDirection.z * DASH_SPEED;
+                velocity.y = 0; 
+            }
+        } 
+        
+        // 1. Horizontal Movement (Only runs if NOT dashing) 
+        if (!isDashing) {
+            let dirX = 0, dirZ = 0;
+            if(keys['KeyW'] || keys['ArrowUp']) dirZ -= 1;
+            if(keys['KeyS'] || keys['ArrowDown']) dirZ += 1;
+            if(keys['KeyA'] || keys['ArrowLeft']) dirX -= 1;
+            if(keys['KeyD'] || keys['ArrowRight']) dirX += 1;
+
+            const speed = 6;
+            if(dirX !== 0 || dirZ !== 0) {
+                let angle = orbitAngleY;
+                let forward = new THREE.Vector3(Math.sin(angle), 0, Math.cos(angle));
+                let right = new THREE.Vector3(Math.cos(angle), 0, -Math.sin(angle));
+                let moveDir = new THREE.Vector3();
+                moveDir.addScaledVector(forward, dirZ);
+                moveDir.addScaledVector(right, dirX);
+                moveDir.normalize();
+                
+                player.position.addScaledVector(moveDir, speed * delta);
             }
         }
-
-        let isTouchingWall = false;
-        let currentWallDir = 0;
-
-        // 1. Horizontal Movement 
-        let dirX = 0, dirZ = 0;
-        if(keys['KeyW'] || keys['ArrowUp']) dirZ -= 1;
-        if(keys['KeyS'] || keys['ArrowDown']) dirZ += 1;
-        if(keys['KeyA'] || keys['ArrowLeft']) dirX -= 1;
-        if(keys['KeyD'] || keys['ArrowRight']) dirX += 1;
-
-        const speed = 6;
-        if(dirX !== 0 || dirZ !== 0) {
-            let angle = orbitAngleY;
-            let forward = new THREE.Vector3(Math.sin(angle), 0, Math.cos(angle));
-            let right = new THREE.Vector3(Math.cos(angle), 0, -Math.sin(angle));
-            let moveDir = new THREE.Vector3();
-            moveDir.addScaledVector(forward, dirZ);
-            moveDir.addScaledVector(right, dirX);
-            moveDir.normalize();
-            player.position.addScaledVector(moveDir, speed * delta);
-        }
+        // End of Dash/Normal Movement logic
         
-        // 2. Wall detection for wall jump
         const pPos = player.position.clone();
         const half = {x:0.5,y:0.5,z:0.5};
+        
+        // 2. Wall detection for wall jump
+        let isTouchingWall = false;
+        let currentWallDir = 0;
 
         for(let w of walls){
             const wPos = w.position;
@@ -526,14 +540,12 @@
                 let diffX = pPos.x - wPos.x;
                 let diffZ = pPos.z - wPos.z;
                 
-                // Prioritize X-axis for wall jump detection in the current level layout
-                if (wSize.z < wSize.x) { // Wall is wider in X, so normal is Z (like the back wall)
+                if (wSize.z < wSize.x) { 
                     if(Math.abs(diffZ) > 0.01){
                         isTouchingWall = true;
                         currentWallDir = diffZ > 0 ? 1 : -1;
-                        // For the tower (X-aligned walls), we check X collision
                     }
-                } else { // Wall is wider in Z, so normal is X (like the side walls)
+                } else { 
                     if(Math.abs(diffX) > 0.01){
                         isTouchingWall = true;
                         currentWallDir = diffX > 0 ? 1 : -1;
@@ -578,6 +590,7 @@
         velocity.y -= 9.8 * delta;
 
         // Apply velocity X/Z (from wall jump or previous dash)
+        // This is where the Dashing velocity is applied and checked against walls
         player.position.x += velocity.x * delta;
         velocity.x *= 0.8; 
         player.position.z += velocity.z * delta; 
@@ -628,7 +641,7 @@
             }
         }
 
-        // 5. Collide with walls (Improved Resolution)
+        // 5. Collide with walls (Robust resolution - stops dash clipping)
         for(let w of walls){
             const wPos = w.position;
             const wSize = {x:w.geometry.parameters.width/2, y:w.geometry.parameters.height/2, z:w.geometry.parameters.depth/2};
@@ -637,9 +650,9 @@
                 let diffZ = player.position.z - wPos.z;
                 
                 const penX = (wSize.x + half.x) - Math.abs(diffX);
-                const penZ = (wSize.z + half.z) - Math.abs(diffZ);
+                // Fix: use wSize.z for the Z penetration calculation
+                const penZ = (wSize.z + half.z) - Math.abs(diffZ); 
 
-                // Resolve collision on the axis with the least penetration (the 'fastest' axis to push out)
                 if(penX < penZ) {
                     if(diffX > 0){
                         player.position.x += penX + 0.01; 
@@ -739,46 +752,50 @@
       document.getElementById('gameOverPanel').style.display = 'none';
     }
 
-    function onMouseDown(e) {
-      isDragging = true;
-      dragStart.x = e.clientX;
-      dragStart.y = e.clientY;
-    }
-
-    function onMouseUp() {
-      isDragging = false;
-    }
+    // ❌ REMOVED: onMouseDown and onMouseUp
 
     function onMouseMove(e) {
-      if(!isDragging) return;
-      let deltaX = e.clientX - dragStart.x;
-      let deltaY = e.clientY - dragStart.y;
-      dragStart.x = e.clientX;
-      dragStart.y = e.clientY;
+      // Rotation logic, now runs regardless of mouse button state
+      let deltaX = e.movementX; // Use movementX for delta relative to the last frame
+      let deltaY = e.movementY; // Use movementY
+
+      // Note: If movementX/Y is zero or undefined (in some contexts), fall back to manual delta tracking 
+      if (deltaX === undefined || deltaY === undefined) {
+        // Fallback: This requires tracking previous mouse position, which we removed.
+        // For simplicity and common browser compatibility, we'll rely on movementX/Y.
+        // If movementX/Y isn't working, consider re-implementing the dragStart tracking.
+        return; 
+      }
+      
       orbitAngleY -= deltaX * dragSensitivity;
       orbitAngleX -= deltaY * dragSensitivity;
     }
 
     window.addEventListener('DOMContentLoaded', () => {
-      // Initialize Audio Context when a user interaction occurs
       audioCtx = new AudioContext();
       init();
-      cameraTarget.copy(player.position);
-      cameraTarget.y += 0.5;
 
       document.getElementById('startBtn').addEventListener('click', () => {
-        // Resume audio context on click (required for most browsers)
         if(audioCtx.state === 'suspended') audioCtx.resume();
         document.getElementById('overlay').style.display = 'none';
         clock.start();
         playMusic();
         animate();
+        // Optional: Lock the cursor after starting
+        renderer.domElement.requestPointerLock(); 
       });
       document.getElementById('restartBtn').addEventListener('click', () => respawn());
       document.getElementById('gameOverRestartBtn').addEventListener('click', () => respawn());
       
       window.addEventListener('keydown', e => {
         if(e.code === 'KeyR' && (gameOver || win)) respawn();
+      });
+      
+      // Handle unlocking the pointer when the game is paused/lost
+      document.addEventListener('pointerlockchange', () => {
+        if (document.pointerLockElement !== renderer.domElement) {
+          // If the cursor is released, you might want to pause the game or stop rotation
+        }
       });
     });
 </script>
