@@ -3,9 +3,9 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>3D Platformer</title>
+  <title>3D Platformer - Wall Jump Challenge</title>
   
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>👍</text></svg>">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🏃</text></svg>">
   
   <style>
     html, body { height: 100%; margin: 0; overflow: hidden; }
@@ -18,6 +18,7 @@
       z-index: 2;
       user-select: none;
       font-size: 14px;
+      text-shadow: 1px 1px 2px black;
     }
     #overlay {
       position: absolute;
@@ -35,7 +36,7 @@
       color: white;
       max-width: 320px;
       text-align: center;
-      margin: 10px; /* Separates panels if multiple are visible */
+      margin: 10px;
     }
     .settings-grid {
         display: grid;
@@ -61,16 +62,16 @@
       color: white;
       cursor: pointer;
       font-size: 14px;
-      margin: 12px 6px 0 6px; /* Adjusted margin */
+      margin: 12px 6px 0 6px;
     }
     canvas { display: block; }
   </style>
 </head>
 <body>
   <div id="ui">
-    WASD / Arrow keys: move &nbsp;&nbsp; Space: jump &nbsp;&nbsp; **Shift: dash** &nbsp;&nbsp; **Esc: Pause** &nbsp;&nbsp; R: respawn<br>
-    Mouse move: rotate camera &nbsp;&nbsp; **G: Settings**<br>
-    **Challenge:** Use the wall jump (jump while sliding on a wall) to climb the tower.
+    <div id="stageInfo">Stage: 1 / 3</div>
+    WASD / Arrow keys: move &nbsp;&nbsp; Space: jump &nbsp;&nbsp; **Shift: dash** &nbsp;&nbsp; **Esc: Pause** &nbsp;&nbsp; G: Settings<br>
+    Mouse move: rotate camera &nbsp;&nbsp; R: respawn
   </div>
   <div id="overlay">
     <div class="panel" id="startPanel">
@@ -99,14 +100,14 @@
     </div>
     
     <div class="panel" id="winPanel" style="display:none;">
-      <h2 style="margin:0 0 8px 0">You win! 🎉</h2>
-      <button id="restartBtn">Play again</button>
+      <h2 id="winTitle" style="margin:0 0 8px 0">Stage Complete! 🎉</h2>
+      <button id="restartBtn">Play Next Stage</button>
     </div>
     
     <div class="panel" id="gameOverPanel" style="display:none;">
       <h2 style="margin:0 0 8px 0; color:#f33;">Game Over</h2>
       <div>You hit a spike or fell! Try again.</div>
-      <button id="gameOverRestartBtn">Restart</button>
+      <button id="gameOverRestartBtn">Restart Stage</button>
     </div>
     
     <div class="panel" id="pausePanel" style="display:none;">
@@ -123,7 +124,7 @@
   <script>
     // --- Global Variables (Game State) ---
     let scene, camera, renderer;
-    let player, platforms = [], spikes = [], walls = [];
+    let player, platforms = [], spikes = [], walls = [], hazards = [];
     let velocity = new THREE.Vector3();
     let onGround = false;
     let keys = {};
@@ -133,9 +134,13 @@
     let isPaused = true; 
     let animationFrameId = null;
 
+    // --- LEVEL MANAGEMENT ---
+    let currentStage = 1;
+    const TOTAL_STAGES = 3; 
+
     // --- Loaded Settings ---
     let currentSettings = {
-        volume: 0.5, // 0.0 to 1.0
+        volume: 0.5, 
         playerColor: '#FF8C00',
         cameraDistance: 12,
     };
@@ -170,12 +175,13 @@
     let dragSensitivity = 0.005;
     const cameraTarget = new THREE.Vector3();
     const CAMERA_SMOOTHING = 0.1;
+    let orbitRadius; // Set by settings
 
     // Audio context and music
     const AudioContext = window.AudioContext || window.webkitAudioContext;
     let audioCtx;
     let backgroundMusic = null;
-    let musicGainNode = null; // New gain node for persistent volume control
+    let musicGainNode = null; 
 
     const C4 = 261.63, D4 = 293.66, E4 = 329.63, F4 = 349.23, G4 = 392.00, A4 = 440.00, B4 = 493.88, C5 = 523.25, D5 = 587.33;
 
@@ -183,6 +189,8 @@
 
     function loadSettings() {
         const savedSettings = localStorage.getItem('platformerSettings');
+        const savedStage = localStorage.getItem('platformerCurrentStage');
+        
         if (savedSettings) {
             try {
                 const settings = JSON.parse(savedSettings);
@@ -193,6 +201,12 @@
                 console.error("Error loading settings from localStorage:", e);
             }
         }
+        
+        // Load Stage
+        if (savedStage) {
+            currentStage = parseInt(savedStage) || 1;
+        }
+
         // Apply loaded settings to the UI (if elements exist)
         if (document.getElementById('volumeRange')) {
             document.getElementById('volumeRange').value = currentSettings.volume * 100;
@@ -204,40 +218,42 @@
             document.getElementById('cameraDistanceRange').value = currentSettings.cameraDistance;
             document.getElementById('cameraDistanceValue').textContent = currentSettings.cameraDistance.toFixed(0) + 'm';
         }
+        document.getElementById('stageInfo').textContent = `Stage: ${currentStage} / ${TOTAL_STAGES}`;
     }
 
     function saveSettings() {
         localStorage.setItem('platformerSettings', JSON.stringify(currentSettings));
     }
+    
+    function saveStage() {
+        localStorage.setItem('platformerCurrentStage', currentStage);
+        document.getElementById('stageInfo').textContent = `Stage: ${currentStage} / ${TOTAL_STAGES}`;
+    }
 
     function applySettings() {
         // Apply Volume
         if (musicGainNode) {
-            // Smoothly change the volume
             musicGainNode.gain.setTargetAtTime(currentSettings.volume * 0.5, audioCtx.currentTime, 0.05); 
         }
 
         // Apply Player Color
-        if (player) {
+        if (player && !isDashing) { // Don't change color if player is dashing
             player.material.color.set(currentSettings.playerColor);
         }
 
         // Apply Camera Distance
-        // This updates the orbitRadius variable used in updateCamera()
         orbitRadius = currentSettings.cameraDistance;
     }
 
 
-    // --- Audio Functions ---
+    // --- Audio Functions (Unchanged, relies on musicGainNode for volume) ---
 
     function playMusic() {
       if (!audioCtx) return;
       if (backgroundMusic) return;
 
-      // Initialize Gain Node if not done
       if (!musicGainNode) {
         musicGainNode = audioCtx.createGain();
-        // Set initial volume based on loaded settings
         musicGainNode.gain.setValueAtTime(currentSettings.volume * 0.5, audioCtx.currentTime); 
         musicGainNode.connect(audioCtx.destination);
       }
@@ -269,7 +285,6 @@
           let osc = audioCtx.createOscillator();
           osc.type = 'sine';
           osc.frequency.setValueAtTime(seq.note, now);
-          // Connect to the reusable musicGainNode
           osc.connect(musicGainNode); 
           osc.start(now);
           osc.stop(now + seq.duration * 0.9);
@@ -309,10 +324,9 @@
 
       osc.connect(filter);
       filter.connect(gainNode);
-      // Connect to the destination using the current volume setting
       gainNode.connect(audioCtx.destination);
 
-      let maxGain = currentSettings.volume * 0.5; // Sound effect volume scales with music volume
+      let maxGain = currentSettings.volume * 0.5; 
 
       switch(type) {
         case 'jump':
@@ -355,10 +369,250 @@
       osc.stop(now + 0.5);
     }
 
-    // --- Game Logic Functions ---
+    // --- Game Setup and Level Design ---
+
+    function clearScene() {
+        if (!scene) return;
+        while(scene.children.length > 0){ 
+            scene.remove(scene.children[0]); 
+        }
+        platforms = [];
+        spikes = [];
+        walls = [];
+        hazards = [];
+    }
+
+    function addPlatform(x,y,z,w,h,d,color) {
+      const g = new THREE.BoxGeometry(w,h,d);
+      const m = new THREE.MeshStandardMaterial({color: color, flatShading: false});
+      const mesh = new THREE.Mesh(g,m);
+      mesh.receiveShadow = true;
+      mesh.castShadow = true;
+      mesh.position.set(x,y,z);
+      mesh.userData.size = {x:w,y:h,z:d};
+      scene.add(mesh);
+      platforms.push(mesh);
+      return mesh;
+    }
+    
+    function addSpike(x, y, z, color = 0x666666, rotationSpeed = 0) {
+        const spikeGeometry = new THREE.ConeGeometry(0.5, 1, 4);
+        const spikeMaterial = new THREE.MeshStandardMaterial({color: color});
+        let spike = new THREE.Mesh(spikeGeometry, spikeMaterial);
+        spike.castShadow = true;
+        spike.receiveShadow = true;
+        spike.position.set(x, y, z);
+        scene.add(spike);
+        
+        let hazardObject = {
+            mesh: spike, 
+            type: 'spike', 
+            rotationSpeed: rotationSpeed 
+        };
+        hazards.push(hazardObject); 
+        return hazardObject;
+    }
+
+
+    function createLevel(stage) {
+        clearScene();
+        
+        // --- Lighting ---
+        const hemi = new THREE.HemisphereLight(0xffffff, 0x444444, 0.6);
+        hemi.position.set(0, 50, 0);
+        scene.add(hemi);
+
+        const dir = new THREE.DirectionalLight(0xffffff, 0.8);
+        dir.position.set(10, 20, 10);
+        dir.castShadow = true;
+        dir.shadow.mapSize.set(1024,1024);
+        scene.add(dir);
+        
+        // --- Player Setup ---
+        const geom = new THREE.BoxGeometry(1,1,1);
+        const mat = new THREE.MeshStandardMaterial({color: currentSettings.playerColor});
+        player = new THREE.Mesh(geom, mat);
+        player.castShadow = true;
+        player.receiveShadow = true;
+        player.position.set(0,2,0);
+        scene.add(player);
+        
+        const platformHeight = 0.5;
+        const wallMaterial = new THREE.MeshStandardMaterial({color: 0x444444});
+
+        // --- STAGE 1: Wall Jump and Dash Intro ---
+        if (stage === 1) {
+            addPlatform(0, -1, 0, 20, 1, 20, 0x556b2f); // Floor
+            let zPos = 0, yPos = 0;
+
+            // 1. Initial Jump Test
+            zPos += 4 + 1.5;
+            addPlatform(0, yPos, zPos, 5, platformHeight, 5, 0x8b4513);
+            zPos += 5 + 1;
+
+            // 2. Climbing Wall 1 (Intro to Wall Jump)
+            yPos += 1.2;
+            let plat1 = addPlatform(-5, yPos, zPos, 4, platformHeight, 5, 0x8b4513);
+            const tallWallGeometry = new THREE.BoxGeometry(0.5, 8, 8);
+            let tallLeftWall = new THREE.Mesh(tallWallGeometry, wallMaterial);
+            tallLeftWall.position.set(plat1.position.x - 1.5, plat1.position.y + 4, plat1.position.z);
+            scene.add(tallLeftWall); walls.push(tallLeftWall);
+            let tallRightWall = new THREE.Mesh(tallWallGeometry, wallMaterial);
+            tallRightWall.position.set(plat1.position.x - 3.5, plat1.position.y + 4, plat1.position.z);
+            scene.add(tallRightWall); walls.push(tallRightWall);
+            
+            // Dash jump target 
+            zPos += 5 + 2;
+            yPos += 2.5;
+            addPlatform(5, yPos, zPos, 5, platformHeight, 5, 0x8b4513);
+            
+            // 3. Low Ceiling Dash Section (Hazard 1: Moving Platform Spike)
+            yPos += 1;
+            zPos += 5 + 1;
+            addPlatform(10, yPos, zPos, 6, platformHeight, 3, 0x8b4513);
+            addPlatform(10, yPos + 1.5, zPos, 6, 0.2, 3, 0x777777); // Low ceiling
+
+            yPos += 0.5;
+            zPos += 5;
+            let movingPlat = addPlatform(10, yPos, zPos, 5, platformHeight, 5, 0x8b4513);
+            movingPlat.userData.moving = {amplitude:4, speed:0.8, axis:'x', base: movingPlat.position.x};
+            addSpike(movingPlat.position.x, movingPlat.position.y + platformHeight/2 + 0.5, movingPlat.position.z); 
+
+            // --- 4. WALL CLIMB TOWER SECTION ---
+            const towerHeight = 12; 
+            const towerWidth = 5;  
+            yPos = movingPlat.position.y + platformHeight/2 + 0.01;
+            zPos += 8; 
+            let towerEntrance = addPlatform(5, yPos, zPos, 5, platformHeight, 5, 0x8b4513);
+            let backWall = new THREE.Mesh(new THREE.BoxGeometry(towerWidth + 2, towerHeight, 0.5), wallMaterial);
+            backWall.position.set(towerEntrance.position.x, towerEntrance.position.y + towerHeight/2, towerEntrance.position.z + 2.5);
+            scene.add(backWall); walls.push(backWall);
+            let leftWall = new THREE.Mesh(new THREE.BoxGeometry(0.5, towerHeight, 5), wallMaterial);
+            leftWall.position.set(towerEntrance.position.x - (towerWidth/2) - 0.25, towerEntrance.position.y + towerHeight/2, towerEntrance.position.z);
+            scene.add(leftWall); walls.push(leftWall);
+            let rightWall = new THREE.Mesh(new THREE.BoxGeometry(0.5, towerHeight, 5), wallMaterial);
+            rightWall.position.set(towerEntrance.position.x + (towerWidth/2) + 0.25, towerEntrance.position.y + towerHeight/2, towerEntrance.position.z);
+            scene.add(rightWall); walls.push(rightWall);
+            yPos += towerHeight + 0.5;
+            addPlatform(5, yPos, zPos, 4, platformHeight, 4, 0x556b2f); 
+
+            // --- 5. Final Jump to Win ---
+            yPos += 3;
+            zPos += 5;
+            const winP = addPlatform(5, yPos, zPos, 6, 0.5, 6, 0xffff00);
+            winP.userData.win = true;
+            
+            player.position.set(0,2,0);
+        } 
+        
+        // --- STAGE 2: Rotating Hazards and Precise Jumps ---
+        else if (stage === 2) {
+            addPlatform(0, -1, 0, 30, 1, 30, 0x556b2f); // Floor
+            let zPos = 0, yPos = 0;
+            
+            // 1. Long Jump
+            zPos += 8;
+            addPlatform(0, yPos, zPos, 4, platformHeight, 4, 0x8b4513);
+            
+            // 2. Dash Jump over Rotating Spikes
+            yPos += 1;
+            zPos += 8;
+            addPlatform(0, yPos, zPos, 4, platformHeight, 4, 0x8b4513);
+            
+            yPos += 1;
+            zPos += 8;
+            addPlatform(0, yPos, zPos, 4, platformHeight, 4, 0x8b4513);
+            
+            // Rotating Hazard 1 (A barrier)
+            let rotHazard1 = addPlatform(0, yPos + 0.75, zPos, 0.5, 1.5, 8, 0xdd1111);
+            rotHazard1.userData.rotating = {speed: 1, axis: 'y'};
+            hazards.push({mesh: rotHazard1, type: 'block'});
+            
+            // 3. Wall Jump Zig Zag
+            yPos += 3;
+            zPos += 5;
+            addPlatform(-5, yPos, zPos, 3, platformHeight, 3, 0x8b4513);
+            
+            let wall1 = new THREE.Mesh(new THREE.BoxGeometry(0.5, 5, 3), wallMaterial);
+            wall1.position.set(-6, yPos + 2.5, zPos);
+            scene.add(wall1); walls.push(wall1);
+            
+            yPos += 4;
+            addPlatform(5, yPos, zPos, 3, platformHeight, 3, 0x8b4513);
+            
+            let wall2 = new THREE.Mesh(new THREE.BoxGeometry(0.5, 5, 3), wallMaterial);
+            wall2.position.set(6, yPos + 2.5, zPos);
+            scene.add(wall2); walls.push(wall2);
+
+            // 4. Moving Spikes and Win
+            yPos += 3;
+            zPos += 5;
+            addPlatform(0, yPos, zPos, 8, platformHeight, 8, 0x556b2f);
+            
+            addSpike(-2, yPos + platformHeight/2 + 0.5, zPos, 0xaa00aa, 3); // Rotating Spike 1
+            addSpike(2, yPos + platformHeight/2 + 0.5, zPos, 0xaa00aa, -3); // Rotating Spike 2
+            
+            yPos += 3;
+            zPos += 5;
+            const winP = addPlatform(0, yPos, zPos, 4, 0.5, 4, 0xffff00);
+            winP.userData.win = true;
+            
+            player.position.set(0,2,0);
+        } 
+        
+        // --- STAGE 3: Final Challenge (Large Wall Climb) ---
+        else if (stage === 3) {
+            addPlatform(0, -1, 0, 40, 1, 40, 0x556b2f); // Floor
+            let zPos = 0, yPos = 0;
+            
+            // 1. Initial Wall setup
+            zPos += 8;
+            addPlatform(0, yPos, zPos, 8, platformHeight, 8, 0x8b4513);
+            
+            const finalWallHeight = 30;
+            const finalWallWidth = 15;
+            
+            let finalBackWall = new THREE.Mesh(new THREE.BoxGeometry(finalWallWidth, finalWallHeight, 0.5), wallMaterial);
+            finalBackWall.position.set(0, finalWallHeight/2, zPos + 4.5);
+            scene.add(finalBackWall); walls.push(finalBackWall);
+            
+            let finalLeftWall = new THREE.Mesh(new THREE.BoxGeometry(0.5, finalWallHeight, 9), wallMaterial);
+            finalLeftWall.position.set(-finalWallWidth/2, finalWallHeight/2, zPos);
+            scene.add(finalLeftWall); walls.push(finalLeftWall);
+            
+            let finalRightWall = new THREE.Mesh(new THREE.BoxGeometry(0.5, finalWallHeight, 9), wallMaterial);
+            finalRightWall.position.set(finalWallWidth/2, finalWallHeight/2, zPos);
+            scene.add(finalRightWall); walls.push(finalRightWall);
+            
+            // Platforms for Wall Jump Practice/Aid
+            addPlatform(finalWallWidth/2 - 2, 5, zPos + 3, 2, platformHeight, 2, 0x777777);
+            addPlatform(-finalWallWidth/2 + 2, 10, zPos + 3, 2, platformHeight, 2, 0x777777);
+            addPlatform(finalWallWidth/2 - 2, 15, zPos + 3, 2, platformHeight, 2, 0x777777);
+            
+            // Moving Platform Gap (Dash needed)
+            let movePlat = addPlatform(-7, 20, zPos - 7, 3, platformHeight, 3, 0x1e90ff);
+            movePlat.userData.moving = {amplitude: 10, speed: 0.5, axis: 'z', base: movePlat.position.z};
+            
+            // Rotating Spikes at the top
+            yPos = finalWallHeight - 1;
+            zPos += 4;
+            let topPlat = addPlatform(0, yPos, zPos, 8, platformHeight, 8, 0x556b2f);
+            
+            addSpike(2, yPos + platformHeight/2 + 0.5, zPos - 2, 0xaa00aa, 2);
+            addSpike(-2, yPos + platformHeight/2 + 0.5, zPos + 2, 0xaa00aa, -2);
+            
+            // Final Win Platform
+            yPos += 3;
+            zPos += 5;
+            const winP = addPlatform(0, yPos, zPos, 4, 0.5, 4, 0xffff00);
+            winP.userData.win = true;
+            
+            player.position.set(0,2,0);
+        }
+    }
 
     function init() {
-      // 1. Scene Setup
+      // 1. Scene Setup (Only done once)
       scene = new THREE.Scene();
       scene.background = new THREE.Color(0x87ceeb);
 
@@ -368,173 +622,90 @@
       renderer.setSize(window.innerWidth, window.innerHeight);
       renderer.shadowMap.enabled = true;
       document.getElementById('canvas-holder').appendChild(renderer.domElement);
-
-      const hemi = new THREE.HemisphereLight(0xffffff, 0x444444, 0.6);
-      hemi.position.set(0, 50, 0);
-      scene.add(hemi);
-
-      const dir = new THREE.DirectionalLight(0xffffff, 0.8);
-      dir.position.set(10, 20, 10);
-      dir.castShadow = true;
-      dir.shadow.mapSize.set(1024,1024);
-      scene.add(dir);
-
-      // 2. Player Setup (Color applied via settings)
-      const geom = new THREE.BoxGeometry(1,1,1);
-      const mat = new THREE.MeshStandardMaterial({color: currentSettings.playerColor});
-      player = new THREE.Mesh(geom, mat);
-      player.castShadow = true;
-      player.receiveShadow = true;
-      player.position.set(0,2,0);
-      scene.add(player);
-
-      // 3. Level Design (Remains the same)
-      addPlatform(0, -1, 0, 20, 1, 20, 0x556b2f);
-      const platformHeight = 0.5;
-      let zPos = -2, yPos = 0;
-
-      zPos += 4 + 1.5;
-      addPlatform(0, yPos, zPos, 5, platformHeight, 5, 0x8b4513);
-      zPos += 5 + 1;
-
-      yPos += 1.2;
-      let plat1 = addPlatform(-5, yPos, zPos, 4, platformHeight, 5, 0x8b4513);
-      const wallMaterial = new THREE.MeshStandardMaterial({color: 0x444444});
-      const tallWallGeometry = new THREE.BoxGeometry(0.5, 8, 8);
-      let tallLeftWall = new THREE.Mesh(tallWallGeometry, wallMaterial);
-      tallLeftWall.position.set(plat1.position.x - 1.5, plat1.position.y + 4, plat1.position.z);
-      scene.add(tallLeftWall);
-      walls.push(tallLeftWall);
-      let tallRightWall = new THREE.Mesh(tallWallGeometry, wallMaterial);
-      tallRightWall.position.set(plat1.position.x - 3.5, plat1.position.y + 4, plat1.position.z);
-      scene.add(tallRightWall);
-      walls.push(tallRightWall);
       
-      zPos += 5 + 2;
-      yPos += 2.5;
-      addPlatform(5, yPos, zPos, 5, platformHeight, 5, 0x8b4513);
-      
-      yPos += 1;
-      zPos += 5 + 1;
-      addPlatform(10, yPos, zPos, 6, platformHeight, 3, 0x8b4513);
-      addPlatform(10, yPos + 1.5, zPos, 6, 0.2, 3, 0x777777); 
+      // 2. Load Level
+      createLevel(currentStage);
 
-      yPos += 0.5;
-      zPos += 5;
-      addPlatform(10, yPos, zPos, 5, platformHeight, 5, 0x8b4513);
-
-      yPos += 1;
-      zPos += 5 + 2;
-      let movingPlat = addPlatform(5, yPos, zPos, 4, platformHeight, 4, 0x1e90ff);
-      movingPlat.userData.moving = {amplitude:4, speed:0.8, axis:'x', base: movingPlat.position.x};
-      const spikeGeometry = new THREE.ConeGeometry(0.5, 1, 4);
-      const spikeMaterial = new THREE.MeshStandardMaterial({color: 0x666666});
-      let spike = new THREE.Mesh(spikeGeometry, spikeMaterial);
-      spike.castShadow = true;
-      spike.receiveShadow = true;
-      spike.position.set(movingPlat.position.x, movingPlat.position.y + platformHeight/2 + 0.5, movingPlat.position.z);
-      scene.add(spike);
-      spikes.push({mesh: spike, platform: movingPlat}); 
-
-      const towerHeight = 12; 
-      const towerWidth = 5;  
-      yPos = movingPlat.position.y + platformHeight/2 + 0.01;
-      zPos += 8; 
-      let towerEntrance = addPlatform(5, yPos, zPos, 5, platformHeight, 5, 0x8b4513);
-      let backWall = new THREE.Mesh(new THREE.BoxGeometry(towerWidth + 2, towerHeight, 0.5), wallMaterial);
-      backWall.position.set(towerEntrance.position.x, towerEntrance.position.y + towerHeight/2, towerEntrance.position.z + 2.5);
-      scene.add(backWall); walls.push(backWall);
-      let leftWall = new THREE.Mesh(new THREE.BoxGeometry(0.5, towerHeight, 5), wallMaterial);
-      leftWall.position.set(towerEntrance.position.x - (towerWidth/2) - 0.25, towerEntrance.position.y + towerHeight/2, towerEntrance.position.z);
-      scene.add(leftWall); walls.push(leftWall);
-      let rightWall = new THREE.Mesh(new THREE.BoxGeometry(0.5, towerHeight, 5), wallMaterial);
-      rightWall.position.set(towerEntrance.position.x + (towerWidth/2) + 0.25, towerEntrance.position.y + towerHeight/2, towerEntrance.position.z);
-      scene.add(rightWall); walls.push(rightWall);
-      yPos += towerHeight + 0.5;
-      addPlatform(5, yPos, zPos, 4, platformHeight, 4, 0x556b2f); 
-
-      yPos += 3;
-      zPos += 5;
-      const winP = addPlatform(5, yPos, zPos, 6, 0.5, 6, 0xffff00);
-      winP.userData.win = true;
-
-
-      // 4. Event Listeners
+      // 3. Event Listeners
       window.addEventListener('resize', onWindowResize);
       window.addEventListener('keydown', handleKeyDown);
       window.addEventListener('keyup', e => keys[e.code] = false);
-
       renderer.domElement.addEventListener('mousemove', onMouseMove);
 
       cameraTarget.copy(player.position);
       cameraTarget.y += 0.5;
       
-      // 5. Apply initial settings
+      // 4. Apply initial settings
       applySettings();
     }
     
-    // Split keydown logic for easier pausing/settings
-    function handleKeyDown(e) {
-        keys[e.code] = true;
+    // --- Animation Logic ---
+
+    function updateAnimations(delta) {
+        if (!player || isDashing) return;
+
+        // Player Animation (Squash/Stretch and Rotation)
+        let targetScaleY = 1.0;
+        let targetScaleXZ = 1.0;
+        let targetRotation = 0;
+        const speed = 15; // Animation smoothing speed
+
+        const isWallSliding = canWallJump && velocity.y < -0.1;
+        const isJumping = !onGround && velocity.y > 0.1;
+        const isFalling = !onGround && velocity.y < -0.1 && !isWallSliding;
         
-        if (e.code === 'Escape' && !gameOver && !win) {
-            isPaused ? resumeGame() : pauseGame();
-            e.preventDefault(); 
-            return;
-        }
-        
-        if (e.code === 'KeyG' && !gameOver && !win) {
-            showSettings();
-            e.preventDefault(); 
-            return;
+        if (isJumping) {
+            targetScaleY = 1.2; 
+            targetScaleXZ = 0.8; 
+        } else if (isFalling) {
+            targetScaleY = 0.8;
+            targetScaleXZ = 1.1;
+        } else if (onGround) {
+            targetScaleY = 1.0;
+            targetScaleXZ = 1.0;
         }
 
-        if(isPaused || gameOver || win) return;
-
-        if(e.code === 'Space' || keys['Numpad0']){
-          jumpInputBufferTimer = JUMP_INPUT_BUFFER_TIME;
+        if (isWallSliding) {
+            targetScaleY = 1.1; 
+            targetScaleXZ = 0.9;
+            targetRotation = wallJumpDirection * (Math.PI / 12); // Tilt into the wall
         }
-        if(e.code === 'ShiftLeft' && dashCooldownTimer <= 0 && !isDashing){
-            let dirX = 0, dirZ = 0;
-            if(keys['KeyW'] || keys['ArrowUp']) dirZ -= 1;
-            if(keys['KeyS'] || keys['ArrowDown']) dirZ += 1;
-            if(keys['KeyA'] || keys['ArrowLeft']) dirX -= 1;
-            if(keys['KeyD'] || keys['ArrowRight']) dirX += 1;
-            
-            let angle = orbitAngleY;
-            let forward = new THREE.Vector3(Math.sin(angle), 0, Math.cos(angle));
-            let right = new THREE.Vector3(Math.cos(angle), 0, -Math.sin(angle));
-            
-            dashDirection.set(0,0,0);
-            if(dirX !== 0 || dirZ !== 0) {
-                dashDirection.addScaledVector(forward, dirZ);
-                dashDirection.addScaledVector(right, dirX);
-                dashDirection.normalize();
-            } else {
-                dashDirection.copy(forward);
+
+        // Apply smooth transition
+        player.scale.y = THREE.MathUtils.lerp(player.scale.y, targetScaleY, delta * speed);
+        player.scale.x = THREE.MathUtils.lerp(player.scale.x, targetScaleXZ, delta * speed);
+        player.scale.z = THREE.MathUtils.lerp(player.scale.z, targetScaleXZ, delta * speed);
+        player.rotation.z = THREE.MathUtils.lerp(player.rotation.z, targetRotation, delta * speed);
+        
+        // --- Moving/Rotating Object Animations ---
+        const t = clock.getElapsedTime(); 
+        
+        // Win Platform Rotation
+        for (let p of platforms) {
+            if (p.userData.win) {
+                p.rotation.y += delta * 1.5;
             }
-
-            isDashing = true;
-            dashTimer = DASH_DURATION;
-            player.material.color.setHex(dashPlayerColor);
-            playSound('dash');
-            
-            velocity.y = Math.min(velocity.y, 0.5); 
+        }
+        
+        // Rotating Hazards (Spikes or Blocks)
+        for (let h of hazards) {
+            if (h.rotationSpeed) {
+                h.mesh.rotation.y += delta * h.rotationSpeed;
+            }
+            if (h.type === 'spike') {
+                // Ensure spike position updates if attached to a moving platform (like in Stage 1)
+                if (h.platform && h.platform.userData.moving) {
+                    h.mesh.position.x = h.platform.position.x;
+                    h.mesh.position.z = h.platform.position.z;
+                }
+            } else if (h.type === 'block' && h.mesh.userData.rotating) {
+                h.mesh.rotation.y = t * h.mesh.userData.rotating.speed;
+            }
         }
     }
 
 
-    function addPlatform(x,y,z,w,h,d,color) {
-      const g = new THREE.BoxGeometry(w,h,d);
-      const m = new THREE.MeshStandardMaterial({color: color});
-      const mesh = new THREE.Mesh(g,m);
-      mesh.receiveShadow = true;
-      mesh.position.set(x,y,z);
-      mesh.userData.size = {x:w,y:h,z:d};
-      scene.add(mesh);
-      platforms.push(mesh);
-      return mesh;
-    }
+    // --- Game Logic Functions ---
 
     function onWindowResize() {
       camera.aspect = window.innerWidth/window.innerHeight;
@@ -583,7 +754,6 @@
             if(dashTimer <= 0) {
                 isDashing = false;
                 dashCooldownTimer = DASH_COOLDOWN;
-                // Revert color to the current setting
                 player.material.color.set(currentSettings.playerColor);
                 velocity.x *= 0.1; 
                 velocity.z *= 0.1;
@@ -594,7 +764,7 @@
             }
         } 
         
-        // 1. Horizontal Movement (Only runs if NOT dashing AND NOT locked out) 
+        // 1. Horizontal Movement 
         if (!isDashing && horizontalLockoutTimer === 0) { 
             let dirX = 0, dirZ = 0;
             if(keys['KeyW'] || keys['ArrowUp']) dirZ -= 1;
@@ -617,9 +787,12 @@
         }
         
         const pPos = player.position.clone();
-        const half = {x:0.5,y:0.5,z:0.5};
+        // Player size adjusted for current scale and base size
+        const pSize = {x:0.5 * player.scale.x, y:0.5 * player.scale.y, z:0.5 * player.scale.z}; 
+        const half = {x:0.5,y:0.5,z:0.5}; // Used for wall/platform collision checks
+
         
-        // 2. Wall detection for wall jump (Standard checks)
+        // 2. Wall detection for wall jump
         let isTouchingWall = false;
         let currentWallDir = 0;
 
@@ -681,7 +854,6 @@
         // Apply velocity X/Z (from wall jump or dash)
         player.position.x += velocity.x * delta;
         
-        // WALL JUMP FIX: Only damp horizontal movement if NOT in lockout
         if (horizontalLockoutTimer === 0) {
              velocity.x *= 0.8; 
         }
@@ -696,25 +868,28 @@
 
         onGround = false;
 
-        // 4. Platform Collision (Standard checks)
+        // 4. Platform Collision 
         for(let pl of platforms) {
             if(pl.userData.moving){
-                const t = performance.now()/1000;
+                const t = clock.getElapsedTime();
                 const m = pl.userData.moving;
                 if(m.axis === 'x') pl.position.x = m.base + Math.sin(t*m.speed) * m.amplitude;
                 else pl.position.z = m.base + Math.sin(t*m.speed) * m.amplitude;
             }
             const size = {x:pl.userData.size.x/2, y:pl.userData.size.y/2, z:pl.userData.size.z/2};
-            if(aabbIntersect(pPos, half, pl.position, size)) {
-                const playerBottom = player.position.y - 0.5;
+            if(aabbIntersect(player.position, half, pl.position, size)) {
+                const playerBottom = player.position.y - half.y; // Simplified for checks
                 const plTop = pl.position.y + size.y;
                 const penetration = plTop - playerBottom;
                 if(velocity.y <= 0 && penetration > 0 && Math.abs(player.position.x - pl.position.x) < (size.x+half.x) && Math.abs(player.position.z - pl.position.z) < (size.z+half.z)){
                     player.position.y += penetration + 0.001;
                     velocity.y = 0;
                     onGround = true;
-                    velocity.x = 0;
-                    velocity.z = 0;
+                    // Don't kill horizontal velocity if player is moving with platform
+                    if(!pl.userData.moving) {
+                       velocity.x = 0;
+                       velocity.z = 0;
+                    }
 
                     if(pl.userData.moving){
                         player.position.x += (pl.position.x - (pl.userData._lastX ?? pl.position.x));
@@ -737,7 +912,7 @@
             }
         }
 
-        // 5. Collide with walls (Robust resolution)
+        // 5. Collide with walls
         for(let w of walls){
             const wPos = w.position;
             const wSize = {x:w.geometry.parameters.width/2, y:w.geometry.parameters.height/2, z:w.geometry.parameters.depth/2};
@@ -768,19 +943,27 @@
             }
         }
 
-        // 6. Check spikes collision (game over)
-        for(let s of spikes){
-            const mesh = s.mesh;
-            if(!mesh || !mesh.position) continue; 
+        // 6. Check hazards collision (game over)
+        for(let h of hazards){
+            const mesh = h.mesh;
+            const hPos = mesh.position.clone();
             
-            const sp = mesh.position; 
-            if(player.position.distanceTo(sp) < 0.7){
-                triggerGameOver();
-                break;
+            // For spikes, check distance. For blocks, check AABB.
+            if(h.type === 'spike'){
+                if(player.position.distanceTo(hPos) < 0.7){
+                    triggerGameOver();
+                    break;
+                }
+            } else if (h.type === 'block') {
+                const hSize = {x:mesh.userData.size.x/2, y:mesh.userData.size.y/2, z:mesh.userData.size.z/2};
+                if(aabbIntersect(player.position, half, hPos, hSize)){
+                    triggerGameOver();
+                    break;
+                }
             }
         }
 
-        // Keep player above the floor plane
+        // Fall Death
         if(player.position.y < -5){
             triggerGameOver();
         }
@@ -795,10 +978,8 @@
       playSound('gameover');
       document.getElementById('gameOverPanel').style.display = '';
       document.getElementById('overlay').style.display = '';
-      document.getElementById('startPanel').style.display = 'none';
-      document.getElementById('winPanel').style.display = 'none';
-      document.getElementById('pausePanel').style.display = 'none';
-      document.getElementById('settingsPanel').style.display = 'none';
+      document.getElementById('gameOverRestartBtn').textContent = `Restart Stage ${currentStage}`;
+      hidePanels(['startPanel', 'winPanel', 'pausePanel', 'settingsPanel']);
       document.exitPointerLock();
     }
 
@@ -809,7 +990,6 @@
       
       orbitAngleX = Math.min(Math.max(0.1, orbitAngleX), Math.PI/2 - 0.1);
       
-      // Use orbitRadius from settings
       const x = cameraTarget.x + orbitRadius * Math.cos(orbitAngleX) * Math.sin(orbitAngleY);
       const y = cameraTarget.y + orbitRadius * Math.sin(orbitAngleX);
       const z = cameraTarget.z + orbitRadius * Math.cos(orbitAngleX) * Math.cos(orbitAngleY);
@@ -828,6 +1008,7 @@
 
       const delta = Math.min(0.05, clock.getDelta());
       physics(delta);
+      updateAnimations(delta); 
       updateCamera();
       renderer.render(scene, camera);
       animationFrameId = requestAnimationFrame(animate);
@@ -835,32 +1016,25 @@
 
     // --- UI/Pause/Settings Management ---
     
-    // Helper to hide all main panels
-    function hideAllPanels() {
-        document.getElementById('startPanel').style.display = 'none';
-        document.getElementById('winPanel').style.display = 'none';
-        document.getElementById('gameOverPanel').style.display = 'none';
-        document.getElementById('pausePanel').style.display = 'none';
-        document.getElementById('settingsPanel').style.display = 'none';
+    function hidePanels(panelIds) {
+        panelIds.forEach(id => {
+            const el = document.getElementById(id);
+            if (el) el.style.display = 'none';
+        });
         document.getElementById('overlay').style.display = 'none';
     }
 
     function showSettings(cameFromPause = false) {
         if (gameOver || win) return;
         
-        // Hide whatever was visible and mark the game as paused
         isPaused = true;
         stopMusic();
         
-        document.getElementById('startPanel').style.display = 'none';
-        document.getElementById('pausePanel').style.display = 'none';
-        document.getElementById('winPanel').style.display = 'none';
-        document.getElementById('gameOverPanel').style.display = 'none';
+        hidePanels(['startPanel', 'pausePanel', 'winPanel', 'gameOverPanel']);
         
         document.getElementById('settingsPanel').style.display = '';
         document.getElementById('overlay').style.display = '';
         
-        // Use userData to remember where we came from (Start or Pause)
         document.getElementById('settingsPanel').dataset.cameFromPause = cameFromPause;
         
         document.exitPointerLock();
@@ -869,32 +1043,26 @@
     function closeSettings() {
         const cameFromPause = document.getElementById('settingsPanel').dataset.cameFromPause === 'true';
         
-        // Hide the settings panel
         document.getElementById('settingsPanel').style.display = 'none';
 
         if (cameFromPause) {
-            // If we came from the pause screen, show it again
-            pauseGame(true); // Re-show pause menu without exiting lock
+            pauseGame(true);
         } else {
-            // If we came from the start screen, show it again
             document.getElementById('startPanel').style.display = '';
             document.getElementById('overlay').style.display = '';
         }
     }
 
-
     function pauseGame(isRevisiting = false) {
-        if (isPaused && !isRevisiting) return; // If already paused and not just revisiting the menu
+        if (isPaused && !isRevisiting) return;
         
         isPaused = true;
         stopMusic();
         
+        hidePanels(['startPanel', 'winPanel', 'gameOverPanel', 'settingsPanel']);
+        
         document.getElementById('pausePanel').style.display = '';
         document.getElementById('overlay').style.display = '';
-        document.getElementById('startPanel').style.display = 'none';
-        document.getElementById('winPanel').style.display = 'none';
-        document.getElementById('gameOverPanel').style.display = 'none';
-        document.getElementById('settingsPanel').style.display = 'none';
         
         if(!isRevisiting) document.exitPointerLock();
     }
@@ -902,10 +1070,10 @@
     function resumeGame() {
         if (!isPaused) return;
         isPaused = false;
-        hideAllPanels();
+        hidePanels(['startPanel', 'winPanel', 'gameOverPanel', 'pausePanel', 'settingsPanel']);
         
-        // Ensure settings are applied on resume in case they were changed
         applySettings(); 
+        playMusic();
         
         if (animationFrameId === null) {
             clock.start();
@@ -914,54 +1082,80 @@
         renderer.domElement.requestPointerLock();
     }
 
-    function respawn() {
-      player.position.set(0, 2, 0);
-      velocity.set(0,0,0);
-      win = false;
-      gameOver = false;
-      isPaused = false;
-      canWallJump = false;
-      wallJumpDirection = 0;
-      wallJumpCoyoteTimer = 0;
-      jumpInputBufferTimer = 0;
-      isDashing = false;
-      dashCooldownTimer = 0;
-      horizontalLockoutTimer = 0; 
-      
-      // Apply player color from settings
-      player.material.color.set(currentSettings.playerColor);
-      
-      hideAllPanels();
+    function respawn(nextStage = false) {
+        if (nextStage && currentStage < TOTAL_STAGES) {
+            currentStage++;
+            saveStage();
+            
+            // Re-initialize the scene for the new level
+            createLevel(currentStage);
+            
+            // Reset orbit camera (so it doesn't try to look at old position)
+            orbitAngleX = Math.PI / 4;
+            orbitAngleY = 0;
+            cameraTarget.copy(player.position);
+            cameraTarget.y += 0.5;
+            updateCamera();
 
-      clock.start();
-      playMusic();
-      animate();
-      renderer.domElement.requestPointerLock();
+            // Change button text back to restart
+            document.getElementById('gameOverRestartBtn').textContent = `Restart Stage ${currentStage}`;
+        } else if (nextStage && currentStage === TOTAL_STAGES) {
+             // Game Completed
+             document.getElementById('winTitle').textContent = "Game Complete! You beat all stages! 🎉";
+             document.getElementById('restartBtn').textContent = "Start Over (Stage 1)";
+             currentStage = 1; // Prepare for a new game
+             saveStage();
+             return; // Don't call resume, stay on the win screen
+        }
+
+        player.position.set(0, 2, 0); // Player position is set by createLevel, but this resets them to the start (0,2,0)
+        velocity.set(0,0,0);
+        win = false;
+        gameOver = false;
+        isPaused = false;
+        
+        // Reset player animations/appearance
+        player.scale.set(1,1,1);
+        player.rotation.set(0,0,0);
+        player.material.color.set(currentSettings.playerColor);
+        
+        // Reset state variables
+        canWallJump = false;
+        wallJumpDirection = 0;
+        wallJumpCoyoteTimer = 0;
+        jumpInputBufferTimer = 0;
+        isDashing = false;
+        dashCooldownTimer = 0;
+        horizontalLockoutTimer = 0; 
+      
+        hidePanels(['startPanel', 'winPanel', 'gameOverPanel', 'pausePanel', 'settingsPanel']);
+
+        clock.start();
+        playMusic();
+        animate();
+        renderer.domElement.requestPointerLock();
     }
 
     function showWin() {
-      isPaused = true;
-      stopMusic();
-      document.getElementById('winPanel').style.display = '';
-      document.getElementById('overlay').style.display = '';
-      document.getElementById('startPanel').style.display = 'none';
-      document.getElementById('gameOverPanel').style.display = 'none';
-      document.getElementById('pausePanel').style.display = 'none';
-      document.getElementById('settingsPanel').style.display = 'none';
-      document.exitPointerLock();
+        isPaused = true;
+        stopMusic();
+        
+        const isGameComplete = currentStage === TOTAL_STAGES;
+        
+        if (isGameComplete) {
+            document.getElementById('winTitle').textContent = "Game Complete! You beat all stages! 🎉";
+            document.getElementById('restartBtn').textContent = "Start Over (Stage 1)";
+        } else {
+            document.getElementById('winTitle').textContent = `Stage ${currentStage} Complete!`;
+            document.getElementById('restartBtn').textContent = `Play Next Stage (${currentStage + 1})`;
+        }
+        
+        document.getElementById('winPanel').style.display = '';
+        document.getElementById('overlay').style.display = '';
+        hidePanels(['startPanel', 'gameOverPanel', 'pausePanel', 'settingsPanel']);
+        document.exitPointerLock();
     }
 
-    function onMouseMove(e) {
-      if (isPaused || gameOver || win) return;
-      
-      let deltaX = e.movementX;
-      let deltaY = e.movementY;
-
-      if (deltaX === undefined || deltaY === undefined) return; 
-      
-      orbitAngleY -= deltaX * dragSensitivity;
-      orbitAngleX -= deltaY * dragSensitivity;
-    }
 
     // --- Initialization and Event Wiring ---
 
@@ -974,20 +1168,23 @@
       // 2. Wire UI Buttons
       document.getElementById('startBtn').addEventListener('click', () => {
         if(audioCtx.state === 'suspended') audioCtx.resume();
-        resumeGame();
+        respawn(false); // Start the current stage
       });
-      document.getElementById('resumeBtn').addEventListener('click', () => resumeGame());
-      document.getElementById('pauseRestartBtn').addEventListener('click', () => respawn());
-      document.getElementById('restartBtn').addEventListener('click', () => respawn());
-      document.getElementById('gameOverRestartBtn').addEventListener('click', () => respawn());
+      document.getElementById('resumeBtn').addEventListener('click', resumeGame);
+      document.getElementById('pauseRestartBtn').addEventListener('click', () => respawn(false));
+      document.getElementById('gameOverRestartBtn').addEventListener('click', () => respawn(false));
+      
+      // The main 'Win' button handles both next stage and starting over
+      document.getElementById('restartBtn').addEventListener('click', () => {
+          respawn(true); // Argument 'true' means advance to next stage (or restart game)
+      });
       
       // Settings Buttons
       document.getElementById('showSettingsBtn').addEventListener('click', () => showSettings(false));
       document.getElementById('pauseSettingsBtn').addEventListener('click', () => showSettings(true));
       document.getElementById('closeSettingsBtn').addEventListener('click', closeSettings);
 
-      // 3. Wire Setting Controls to update currentSettings and localStorage
-      
+      // 3. Wire Setting Controls (Unchanged)
       const volumeRange = document.getElementById('volumeRange');
       volumeRange.addEventListener('input', () => {
         currentSettings.volume = volumeRange.value / 100;
@@ -1013,21 +1210,19 @@
       
       // 4. Global Keyboard Respawn/Settings
       window.addEventListener('keydown', e => {
-        if(e.code === 'KeyR' && (gameOver || win || isPaused)) respawn();
+        if(e.code === 'KeyR' && (gameOver || win || isPaused)) respawn(false);
         if(e.code === 'KeyG' && !gameOver && !win) {
-            // Handle 'G' key to open/close settings
             const settingsPanel = document.getElementById('settingsPanel');
             if (settingsPanel.style.display === '') {
                 closeSettings();
             } else {
-                // Check if we are starting a new game (startPanel is visible) or if we are paused
                 const fromPause = document.getElementById('pausePanel').style.display === '';
                 showSettings(fromPause);
             }
         }
       });
       
-      // 5. Pointer Lock Check (for auto-pause)
+      // 5. Pointer Lock Check
       document.addEventListener('pointerlockchange', () => {
         if (document.pointerLockElement !== renderer.domElement && !gameOver && !win && !isPaused) {
           pauseGame();
