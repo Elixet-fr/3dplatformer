@@ -10,6 +10,8 @@
   <style>
     html, body { height: 100%; margin: 0; overflow: hidden; }
     body { font-family: Arial, Helvetica, sans-serif; background: #87ceeb; }
+    
+    /* Reduced UI content for a cleaner look */
     #ui {
       position: absolute;
       left: 16px;
@@ -20,6 +22,12 @@
       font-size: 14px;
       text-shadow: 1px 1px 2px black;
     }
+    #mini-prompt {
+        font-size: 12px;
+        margin-top: 5px;
+        opacity: 0.7;
+    }
+
     #overlay {
       position: absolute;
       inset: 0;
@@ -54,6 +62,11 @@
         width: 100%;
         margin: 0;
     }
+    .controls-list {
+        text-align: left;
+        margin-top: 15px;
+        line-height: 1.8;
+    }
     button {
       padding: 8px 12px;
       border-radius: 6px;
@@ -70,17 +83,33 @@
 <body>
   <div id="ui">
     <div id="stageInfo">Stage: 1 / 3</div>
-    WASD / Arrow keys: move &nbsp;&nbsp; Space: jump &nbsp;&nbsp; **Shift: dash** &nbsp;&nbsp; **Esc: Pause** &nbsp;&nbsp; G: Settings<br>
-    Mouse move: rotate camera &nbsp;&nbsp; **R: respawn**
+    <div id="mini-prompt">ESC: Pause | C: Controls</div>
   </div>
   <div id="overlay">
+    
     <div class="panel" id="startPanel">
       <h2 style="margin:0 0 8px 0">3D Platformer — Wall Climb Challenge</h2>
-      <div>Use WASD to move. Use **Shift** to dash. Click 'Start' to begin.</div>
+      <div>Use WASD to move. Use **Shift** to dash.</div>
       <button id="startBtn">Start</button>
       <button id="showSettingsBtn">Settings (G)</button>
+      <button id="showControlsBtnStart">Controls (C)</button>
     </div>
     
+    <div class="panel" id="controlsPanel" style="display:none;">
+      <h2 style="margin:0 0 8px 0">Controls</h2>
+      <div class="controls-list">
+        * **WASD / Arrows**: Move
+        * **Space**: Jump
+        * **Shift**: Dash
+        * **Mouse Move**: Rotate Camera
+        * **R**: Respawn (Quick Restart)
+        * **Esc**: Pause / Resume
+        * **G**: Settings
+        * **C**: Toggle Controls Menu
+      </div>
+      <button id="closeControlsBtn">Close</button>
+    </div>
+
     <div class="panel" id="settingsPanel" style="display:none;">
       <h2 style="margin:0 0 8px 0">Settings</h2>
       
@@ -115,6 +144,7 @@
       <button id="resumeBtn">Resume (Esc)</button>
       <button id="pauseRestartBtn">Restart Level</button>
       <button id="pauseSettingsBtn">Settings (G)</button>
+      <button id="showControlsBtnPause">Controls (C)</button>
     </div>
   </div>
   <div id="canvas-holder"></div>
@@ -124,7 +154,7 @@
   <script>
     // --- Global Variables (Game State) ---
     let scene, camera, renderer;
-    let player, platforms = [], spikes = [], walls = [], hazards = [];
+    let player, platforms = [], walls = [], hazards = [];
     let velocity = new THREE.Vector3();
     let onGround = false;
     let keys = {};
@@ -377,7 +407,6 @@
             scene.remove(scene.children[0]); 
         }
         platforms = [];
-        spikes = [];
         walls = [];
         hazards = [];
     }
@@ -629,7 +658,6 @@
 
       // 3. Event Listeners
       window.addEventListener('resize', onWindowResize);
-      // NOTE: handleKeyDown is a function declaration, correctly hoisted and available here.
       window.addEventListener('keydown', handleKeyDown); 
       window.addEventListener('keyup', e => keys[e.code] = false);
       renderer.domElement.addEventListener('mousemove', onMouseMove);
@@ -641,7 +669,7 @@
       applySettings();
     }
     
-    // --- Keydown Handler (Error fix: handles R, Esc, and G here) ---
+    // --- Keydown Handler (Handles movement and menu keys) ---
     function handleKeyDown(e) {
         keys[e.code] = true;
         
@@ -654,7 +682,14 @@
 
         // Esc: Pause/Resume
         if (e.code === 'Escape' && !gameOver && !win) {
-            isPaused ? resumeGame() : pauseGame();
+             // If any other panel (Settings/Controls) is open, close it first.
+            if(document.getElementById('settingsPanel').style.display === '') {
+                closeSettings();
+            } else if (document.getElementById('controlsPanel').style.display === '') {
+                closeControls();
+            } else {
+                isPaused ? resumeGame() : pauseGame();
+            }
             e.preventDefault(); 
             return;
         }
@@ -662,7 +697,6 @@
         // G: Settings
         if (e.code === 'KeyG' && !gameOver && !win) {
             const settingsPanel = document.getElementById('settingsPanel');
-            // Check if settings is currently visible
             if (settingsPanel.style.display === '') {
                 closeSettings();
             } else {
@@ -673,6 +707,20 @@
             e.preventDefault(); 
             return;
         }
+
+        // C: Controls
+        if (e.code === 'KeyC' && !gameOver && !win) {
+            const controlsPanel = document.getElementById('controlsPanel');
+            if (controlsPanel.style.display === '') {
+                closeControls();
+            } else {
+                const fromPause = document.getElementById('pausePanel').style.display === '';
+                showControls(fromPause);
+            }
+            e.preventDefault(); 
+            return;
+        }
+
 
         if(isPaused || gameOver || win) return;
 
@@ -1049,7 +1097,7 @@
       document.getElementById('gameOverPanel').style.display = '';
       document.getElementById('overlay').style.display = '';
       document.getElementById('gameOverRestartBtn').textContent = `Restart Stage ${currentStage}`;
-      hidePanels(['startPanel', 'winPanel', 'pausePanel', 'settingsPanel']);
+      hidePanels(['startPanel', 'winPanel', 'pausePanel', 'settingsPanel', 'controlsPanel'], false); // Keep overlay visible
       document.exitPointerLock();
     }
 
@@ -1084,15 +1132,47 @@
       animationFrameId = requestAnimationFrame(animate);
     }
 
-    // --- UI/Pause/Settings Management ---
+    // --- UI/Pause/Settings/Controls Management ---
     
-    function hidePanels(panelIds) {
+    function hidePanels(panelIds, hideOverlay = true) {
         panelIds.forEach(id => {
             const el = document.getElementById(id);
             if (el) el.style.display = 'none';
         });
-        document.getElementById('overlay').style.display = 'none';
+        if (hideOverlay) {
+            document.getElementById('overlay').style.display = 'none';
+        }
     }
+
+    function showControls(cameFromPause = false) {
+        if (gameOver || win) return;
+        
+        isPaused = true;
+        stopMusic();
+        
+        hidePanels(['startPanel', 'pausePanel', 'winPanel', 'gameOverPanel', 'settingsPanel'], false);
+        
+        document.getElementById('controlsPanel').style.display = '';
+        document.getElementById('overlay').style.display = '';
+        
+        document.getElementById('controlsPanel').dataset.cameFromPause = cameFromPause;
+        
+        document.exitPointerLock();
+    }
+    
+    function closeControls() {
+        const cameFromPause = document.getElementById('controlsPanel').dataset.cameFromPause === 'true';
+        
+        document.getElementById('controlsPanel').style.display = 'none';
+
+        if (cameFromPause) {
+            pauseGame(true); // Re-display pause menu
+        } else {
+            document.getElementById('startPanel').style.display = ''; // Re-display start menu
+            document.getElementById('overlay').style.display = '';
+        }
+    }
+
 
     function showSettings(cameFromPause = false) {
         if (gameOver || win) return;
@@ -1100,7 +1180,7 @@
         isPaused = true;
         stopMusic();
         
-        hidePanels(['startPanel', 'pausePanel', 'winPanel', 'gameOverPanel']);
+        hidePanels(['startPanel', 'pausePanel', 'winPanel', 'gameOverPanel', 'controlsPanel'], false);
         
         document.getElementById('settingsPanel').style.display = '';
         document.getElementById('overlay').style.display = '';
@@ -1129,7 +1209,7 @@
         isPaused = true;
         stopMusic();
         
-        hidePanels(['startPanel', 'winPanel', 'gameOverPanel', 'settingsPanel']);
+        hidePanels(['startPanel', 'winPanel', 'gameOverPanel', 'settingsPanel', 'controlsPanel'], false);
         
         document.getElementById('pausePanel').style.display = '';
         document.getElementById('overlay').style.display = '';
@@ -1140,7 +1220,7 @@
     function resumeGame() {
         if (!isPaused) return;
         isPaused = false;
-        hidePanels(['startPanel', 'winPanel', 'gameOverPanel', 'pausePanel', 'settingsPanel']);
+        hidePanels(['startPanel', 'winPanel', 'gameOverPanel', 'pausePanel', 'settingsPanel', 'controlsPanel']);
         
         applySettings(); 
         playMusic();
@@ -1167,15 +1247,22 @@
             cameraTarget.y += 0.5;
             updateCamera();
 
-            // Change button text back to restart
+            // Update button texts for the new stage
             document.getElementById('gameOverRestartBtn').textContent = `Restart Stage ${currentStage}`;
+            document.getElementById('restartBtn').textContent = `Play Next Stage (${currentStage + 1})`;
+
         } else if (nextStage && currentStage === TOTAL_STAGES) {
-             // Game Completed
+             // Game Completed: Prepare for restart at Stage 1
              document.getElementById('winTitle').textContent = "Game Complete! You beat all stages! 🎉";
              document.getElementById('restartBtn').textContent = "Start Over (Stage 1)";
-             currentStage = 1; // Prepare for a new game
+             currentStage = 1; 
              saveStage();
-             return; // Don't call resume, stay on the win screen
+             createLevel(currentStage); // Reload stage 1 geometry
+             // Stay on the win screen until the user clicks Start Over
+             return; 
+        } else if (!nextStage && currentStage === TOTAL_STAGES) {
+            // If user restarts from game over/pause on the last stage
+            createLevel(currentStage);
         }
 
         player.position.set(0, 2, 0); 
@@ -1198,7 +1285,7 @@
         dashCooldownTimer = 0;
         horizontalLockoutTimer = 0; 
       
-        hidePanels(['startPanel', 'winPanel', 'gameOverPanel', 'pausePanel', 'settingsPanel']);
+        hidePanels(['startPanel', 'winPanel', 'gameOverPanel', 'pausePanel', 'settingsPanel', 'controlsPanel']);
 
         clock.start();
         playMusic();
@@ -1222,7 +1309,7 @@
         
         document.getElementById('winPanel').style.display = '';
         document.getElementById('overlay').style.display = '';
-        hidePanels(['startPanel', 'gameOverPanel', 'pausePanel', 'settingsPanel']);
+        hidePanels(['startPanel', 'gameOverPanel', 'pausePanel', 'settingsPanel', 'controlsPanel'], false);
         document.exitPointerLock();
     }
 
@@ -1246,16 +1333,16 @@
       audioCtx = new AudioContext();
       init();
 
-      // 2. Wire UI Buttons
+      // 2. Wire UI Buttons (FIXED/UPDATED)
       document.getElementById('startBtn').addEventListener('click', () => {
         if(audioCtx.state === 'suspended') audioCtx.resume();
         respawn(false); // Start the current stage
       });
       document.getElementById('resumeBtn').addEventListener('click', resumeGame);
       document.getElementById('pauseRestartBtn').addEventListener('click', () => respawn(false));
-      document.getElementById('gameOverRestartBtn').addEventListener('click', () => respawn(false));
       
-      // The main 'Win' button handles both next stage and starting over
+      // *** FIX: Added listeners for Game Over and Win panels ***
+      document.getElementById('gameOverRestartBtn').addEventListener('click', () => respawn(false));
       document.getElementById('restartBtn').addEventListener('click', () => {
           respawn(true); // Argument 'true' means advance to next stage (or restart game)
       });
@@ -1264,6 +1351,12 @@
       document.getElementById('showSettingsBtn').addEventListener('click', () => showSettings(false));
       document.getElementById('pauseSettingsBtn').addEventListener('click', () => showSettings(true));
       document.getElementById('closeSettingsBtn').addEventListener('click', closeSettings);
+      
+      // Controls Buttons (NEW)
+      document.getElementById('showControlsBtnStart').addEventListener('click', () => showControls(false));
+      document.getElementById('showControlsBtnPause').addEventListener('click', () => showControls(true));
+      document.getElementById('closeControlsBtn').addEventListener('click', closeControls);
+
 
       // 3. Wire Setting Controls
       const volumeRange = document.getElementById('volumeRange');
