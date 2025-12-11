@@ -1,4 +1,79 @@
-<script>
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>3D Platformer - Final Level</title>
+  <style>
+    html, body { height: 100%; margin: 0; overflow: hidden; }
+    body { font-family: Arial, Helvetica, sans-serif; background: #87ceeb; }
+    #ui {
+      position: absolute;
+      left: 16px;
+      top: 16px;
+      color: white;
+      z-index: 2;
+      user-select: none;
+      font-size: 14px;
+    }
+    #overlay {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 3;
+      /* Ensure the overlay is always visible until the game starts, using a light transparency */
+      background: rgba(0,0,0,0.5); 
+    }
+    .panel {
+      background: rgba(0,0,0,0.8);
+      padding: 20px;
+      border-radius: 8px;
+      color: white;
+      max-width: 320px;
+      text-align: center;
+    }
+    button {
+      padding: 8px 12px;
+      border-radius: 6px;
+      border: none;
+      background: #222;
+      color: white;
+      cursor: pointer;
+      font-size: 14px;
+      margin-top: 12px;
+    }
+    canvas { display: block; }
+  </style>
+</head>
+<body>
+  <div id="ui">
+    WASD / Arrow keys: move &nbsp;&nbsp; Space: jump &nbsp;&nbsp; **Shift: dash** &nbsp;&nbsp; R: respawn<br>
+    Mouse drag: rotate camera<br>
+    Wall jump: jump again while touching a wall in air.
+  </div>
+  <div id="overlay">
+    <div class="panel" id="startPanel">
+      <h2 style="margin:0 0 8px 0">3D Platformer — Wall Climb Challenge</h2>
+      <div>Use WASD to move. Use **Shift** to dash. Click 'Start' to begin.</div>
+      <button id="startBtn">Start</button>
+    </div>
+    <div class="panel" id="winPanel" style="display:none;">
+      <h2 style="margin:0 0 8px 0">You win! 🎉</h2>
+      <button id="restartBtn">Play again</button>
+    </div>
+    <div class="panel" id="gameOverPanel" style="display:none;">
+      <h2 style="margin:0 0 8px 0; color:#f33;">Game Over</h2>
+      <div>You hit a spike or fell! Try again.</div>
+      <button id="gameOverRestartBtn">Restart</button>
+    </div>
+  </div>
+  <div id="canvas-holder"></div>
+
+  <script src="https://cdn.jsdelivr.net/npm/three@0.152.2/build/three.min.js"></script>
+
+  <script>
     let scene, camera, renderer;
     let player, platforms = [], spikes = [], walls = [];
     let velocity = new THREE.Vector3();
@@ -181,7 +256,6 @@
       renderer = new THREE.WebGLRenderer({antialias:true});
       renderer.setSize(window.innerWidth, window.innerHeight);
       renderer.shadowMap.enabled = true;
-      // This line is where the canvas is inserted. If code fails before here, you only see text.
       document.getElementById('canvas-holder').appendChild(renderer.domElement);
 
       const hemi = new THREE.HemisphereLight(0xffffff, 0x444444, 0.6);
@@ -218,7 +292,7 @@
       // Wall geometry
       const wallMaterial = new THREE.MeshStandardMaterial({color: 0x444444});
       const tallWallGeometry = new THREE.BoxGeometry(0.5, 8, 8);
-      // Removed the redundant 'longWallGeometry' definition here
+      // Removed the redundant 'longWallGeometry' definition
 
       // --- Level Design ---
 
@@ -227,7 +301,7 @@
       addPlatform(0, yPos, zPos, platformWidth, platformHeight, 5, 0x8b4513);
       zPos += 5 + 1;
 
-      // 2. Climbing Wall 1
+      // 2. Climbing Wall 1 (Intro to Wall Jump)
       yPos += 1.2;
       let plat1 = addPlatform(-5, yPos, zPos, 4, platformHeight, 5, 0x8b4513);
       
@@ -272,37 +346,36 @@
       scene.add(spike);
       spikes.push({mesh: spike, platform: movingPlat});
 
-      // --- 5. WALL CLIMB TOWER SECTION (New) ---
+      // --- 5. WALL CLIMB TOWER SECTION ---
       const towerHeight = 12; 
       const towerWidth = 5;  
       
-      // Reset Y position for new platform entry
+      // Set Y position for new platform entry level
       yPos = movingPlat.position.y + platformHeight/2 + 0.01;
       zPos += 8; 
 
-      // Plataforma de entrada na torre
+      // Tower Entrance Platform
       let towerEntrance = addPlatform(5, yPos, zPos, 5, platformHeight, 5, 0x8b4513);
       
-      // Parede Traseira (fundo da torre)
-      // Note: We use a new BoxGeometry here instead of relying on a potentially conflicting 'longWallGeometry' variable
+      // Back Wall 
       let backWall = new THREE.Mesh(new THREE.BoxGeometry(towerWidth + 2, towerHeight, 0.5), wallMaterial);
       backWall.position.set(towerEntrance.position.x, towerEntrance.position.y + towerHeight/2, towerEntrance.position.z + 2.5);
       scene.add(backWall);
       walls.push(backWall);
 
-      // Parede Esquerda
+      // Left Wall
       let leftWall = new THREE.Mesh(new THREE.BoxGeometry(0.5, towerHeight, 5), wallMaterial);
       leftWall.position.set(towerEntrance.position.x - (towerWidth/2) - 0.25, towerEntrance.position.y + towerHeight/2, towerEntrance.position.z);
       scene.add(leftWall);
       walls.push(leftWall);
 
-      // Parede Direita
+      // Right Wall
       let rightWall = new THREE.Mesh(new THREE.BoxGeometry(0.5, towerHeight, 5), wallMaterial);
       rightWall.position.set(towerEntrance.position.x + (towerWidth/2) + 0.25, towerEntrance.position.y + towerHeight/2, towerEntrance.position.z);
       scene.add(rightWall);
       walls.push(rightWall);
       
-      // Plataforma de Saída (no topo da torre)
+      // Tower Exit Platform (Top of the tower)
       yPos += towerHeight + 0.5;
       let towerExit = addPlatform(5, yPos, zPos, 4, platformHeight, 4, 0x556b2f); 
 
@@ -691,3 +764,5 @@
       });
     });
 </script>
+</body>
+</html>
