@@ -1,181 +1,693 @@
-function init() {
-  scene = new THREE.Scene();
-  scene.background = new THREE.Color(0x87ceeb);
+<script>
+    let scene, camera, renderer;
+    let player, platforms = [], spikes = [], walls = [];
+    let velocity = new THREE.Vector3();
+    let onGround = false;
+    let keys = {};
+    let clock = new THREE.Clock();
+    let win = false;
+    let gameOver = false;
 
-  camera = new THREE.PerspectiveCamera(60, window.innerWidth/window.innerHeight, 0.1, 1000);
+    // --- Physics & Wall Jump Logic ---
+    let canWallJump = false;
+    let wallJumpDirection = 0;
+    const WALL_JUMP_COYOTE_TIME = 0.1;
+    let wallJumpCoyoteTimer = 0;
+    const JUMP_INPUT_BUFFER_TIME = 0.15;
+    let jumpInputBufferTimer = 0;
+    
+    // --- Dash Logic ---
+    let isDashing = false;
+    const DASH_SPEED = 20;
+    const DASH_DURATION = 0.15;
+    let dashTimer = 0;
+    const DASH_COOLDOWN = 0.7; 
+    let dashCooldownTimer = 0;
+    let dashDirection = new THREE.Vector3();
+    const defaultPlayerColor = 0xff8c00;
+    const dashPlayerColor = 0x00ffff;
+    
+    // --- Gameplay Adjustments (Easy) ---
+    const JUMP_POWER = 7.0;
+    const WALL_JUMP_POWER = 8.5;
 
-  renderer = new THREE.WebGLRenderer({antialias:true});
-  renderer.setSize(window.innerWidth, window.innerHeight);
-  renderer.shadowMap.enabled = true;
-  document.getElementById('canvas-holder').appendChild(renderer.domElement);
+    // Orbit camera params
+    let orbitRadius = 12;
+    let orbitAngleX = Math.PI / 4;
+    let orbitAngleY = 0;
+    let isDragging = false;
+    let dragStart = {x: 0, y: 0};
+    let dragSensitivity = 0.005;
+    const cameraTarget = new THREE.Vector3();
+    const CAMERA_SMOOTHING = 0.1;
 
-  const hemi = new THREE.HemisphereLight(0xffffff, 0x444444, 0.6);
-  hemi.position.set(0, 50, 0);
-  scene.add(hemi);
+    // Audio context and music
+    const AudioContext = window.AudioContext || window.webkitAudioContext;
+    let audioCtx;
+    let backgroundMusic = null;
 
-  const dir = new THREE.DirectionalLight(0xffffff, 0.8);
-  dir.position.set(10, 20, 10);
-  dir.castShadow = true;
-  dir.shadow.mapSize.set(1024,1024);
-  scene.add(dir);
+    // Frequencies (C4 to D5)
+    const C4 = 261.63, D4 = 293.66, E4 = 329.63, F4 = 349.23, G4 = 392.00, A4 = 440.00, B4 = 493.88, C5 = 523.25, D5 = 587.33;
 
-  const geom = new THREE.BoxGeometry(1,1,1);
-  const mat = new THREE.MeshStandardMaterial({color:defaultPlayerColor});
-  player = new THREE.Mesh(geom, mat);
-  player.castShadow = true;
-  player.receiveShadow = true;
-  player.position.set(0,2,0);
-  scene.add(player);
+    function playMusic() {
+      if (!audioCtx) return;
 
-  // Base ground platform
-  addPlatform(0, -1, 0, 20, 1, 20, 0x556b2f);
+      const tempo = 110; 
+      const quarterNote = 60 / tempo;
+      const gain = audioCtx.createGain();
+      gain.gain.setValueAtTime(0.05, audioCtx.currentTime); 
+      gain.connect(audioCtx.destination);
 
-  // Platform params
-  const platformWidth = 5;
-  const platformHeight = 0.5;
-  let zPos = -2;
-  let yPos = 0;
-
-  // Spike geometry - pyramid
-  const spikeGeometry = new THREE.ConeGeometry(0.5, 1, 4);
-  const spikeMaterial = new THREE.MeshStandardMaterial({color: 0x666666});
-
-  // Wall geometry
-  const wallMaterial = new THREE.MeshStandardMaterial({color: 0x444444});
-  const tallWallGeometry = new THREE.BoxGeometry(0.5, 8, 8);
-  const longWallGeometry = new THREE.BoxGeometry(10, 10, 0.5); // Para a torre de pulo (definição mantida)
-
-  // --- Level Design ---
-
-  // 1. Initial Jump Test
-  zPos += 4 + 1.5;
-  addPlatform(0, yPos, zPos, platformWidth, platformHeight, 5, 0x8b4513);
-  zPos += 5 + 1;
-
-  // 2. Climbing Wall 1
-  yPos += 1.2;
-  let plat1 = addPlatform(-5, yPos, zPos, 4, platformHeight, 5, 0x8b4513);
-  
-  let tallLeftWall = new THREE.Mesh(tallWallGeometry, wallMaterial);
-  tallLeftWall.position.set(plat1.position.x - 1.5, plat1.position.y + 4, plat1.position.z);
-  scene.add(tallLeftWall);
-  walls.push(tallLeftWall);
-
-  let tallRightWall = new THREE.Mesh(tallWallGeometry, wallMaterial);
-  tallRightWall.position.set(plat1.position.x - 3.5, plat1.position.y + 4, plat1.position.z);
-  scene.add(tallRightWall);
-  walls.push(tallRightWall);
-  
-  // Dash jump target 
-  zPos += 5 + 2;
-  yPos += 2.5;
-  addPlatform(5, yPos, zPos, 5, platformHeight, 5, 0x8b4513);
-  
-  // 3. Low Ceiling Dash Section 
-  yPos += 1;
-  zPos += 5 + 1;
-  let lowPlat = addPlatform(10, yPos, zPos, 6, platformHeight, 3, 0x8b4513);
-
-  // Low ceiling above the platform
-  addPlatform(10, yPos + 1.5, zPos, 6, 0.2, 3, 0x777777); 
-
-  yPos += 0.5;
-  zPos += 5;
-  addPlatform(10, yPos, zPos, 5, platformHeight, 5, 0x8b4513);
-
-  // 4. Moving Platform Challenge with Spike
-  yPos += 1;
-  zPos += 5 + 2;
-  let movingPlat = addPlatform(5, yPos, zPos, 4, platformHeight, 4, 0x1e90ff);
-  movingPlat.userData.moving = {amplitude:4, speed:0.8, axis:'x', base: movingPlat.position.x};
-
-  // Spike on moving platform
-  let spike = new THREE.Mesh(spikeGeometry, spikeMaterial);
-  spike.castShadow = true;
-  spike.receiveShadow = true;
-  spike.position.set(movingPlat.position.x, movingPlat.position.y + platformHeight/2 + 0.5, movingPlat.position.z);
-  scene.add(spike);
-  spikes.push({mesh: spike, platform: movingPlat});
-
-  // --- 5. WALL CLIMB TOWER SECTION (New) ---
-  const towerHeight = 12; // Altura da torre para o desafio
-  const towerWidth = 5;  // Distância horizontal para pular (Wall Jump)
-  
-  // Reset Y position for new platform entry
-  yPos = movingPlat.position.y + platformHeight/2 + 0.01;
-  zPos += 8; // Move para a nova seção
-
-  // Plataforma de entrada na torre
-  let towerEntrance = addPlatform(5, yPos, zPos, 5, platformHeight, 5, 0x8b4513);
-  
-  // Parede Traseira (fundo da torre)
-  let backWall = new THREE.Mesh(new THREE.BoxGeometry(towerWidth + 2, towerHeight, 0.5), wallMaterial);
-  backWall.position.set(towerEntrance.position.x, towerEntrance.position.y + towerHeight/2, towerEntrance.position.z + 2.5);
-  scene.add(backWall);
-  walls.push(backWall);
-
-  // Parede Esquerda
-  let leftWall = new THREE.Mesh(new THREE.BoxGeometry(0.5, towerHeight, 5), wallMaterial);
-  leftWall.position.set(towerEntrance.position.x - (towerWidth/2) - 0.25, towerEntrance.position.y + towerHeight/2, towerEntrance.position.z);
-  scene.add(leftWall);
-  walls.push(leftWall);
-
-  // Parede Direita
-  let rightWall = new THREE.Mesh(new THREE.BoxGeometry(0.5, towerHeight, 5), wallMaterial);
-  rightWall.position.set(towerEntrance.position.x + (towerWidth/2) + 0.25, towerEntrance.position.y + towerHeight/2, towerEntrance.position.z);
-  scene.add(rightWall);
-  walls.push(rightWall);
-  
-  // Plataforma de Saída (no topo da torre)
-  yPos += towerHeight + 0.5;
-  let towerExit = addPlatform(5, yPos, zPos, 4, platformHeight, 4, 0x556b2f); 
-
-  // --- 6. Final Jump to Win ---
-  
-  // A plataforma de vitória deve estar bem acima da plataforma de saída da torre
-  yPos += 3;
-  zPos += 5;
-  const winP = addPlatform(5, yPos, zPos, 6, 0.5, 6, 0xffff00);
-  winP.userData.win = true;
-
-
-  window.addEventListener('resize', onWindowResize);
-  window.addEventListener('keydown', e => {
-    keys[e.code] = true;
-    if(e.code === 'Space' || keys['Numpad0']){
-      jumpInputBufferTimer = JUMP_INPUT_BUFFER_TIME;
-    }
-    if(e.code === 'ShiftLeft' && dashCooldownTimer <= 0 && !isDashing){
-        let dirX = 0, dirZ = 0;
-        if(keys['KeyW'] || keys['ArrowUp']) dirZ -= 1;
-        if(keys['KeyS'] || keys['ArrowDown']) dirZ += 1;
-        if(keys['KeyA'] || keys['ArrowLeft']) dirX -= 1;
-        if(keys['KeyD'] || keys['ArrowRight']) dirX += 1;
+      let sequence = [
+        { note: C4, duration: quarterNote }, 
+        { note: E4, duration: quarterNote },
+        { note: G4, duration: quarterNote }, 
+        { note: C5, duration: quarterNote },
+        { note: A4, duration: quarterNote * 2 },
+        { note: F4, duration: quarterNote * 2 },
+        { note: G4, duration: quarterNote * 1 },
+        { note: E4, duration: quarterNote * 1 },
         
+        { note: D4, duration: quarterNote }, 
+        { note: F4, duration: quarterNote },
+        { note: A4, duration: quarterNote }, 
+        { note: D5, duration: quarterNote },
+        { note: B4, duration: quarterNote * 2 },
+        { note: G4, duration: quarterNote * 2 },
+        { note: E4, duration: quarterNote * 1 },
+        { note: C4, duration: quarterNote * 1 }
+      ];
+      
+      let stepIndex = 0;
+      
+      function playNextNote() {
+        if (backgroundMusic) clearTimeout(backgroundMusic);
+        
+        const seq = sequence[stepIndex % sequence.length];
+        const now = audioCtx.currentTime;
+
+        if (seq.note > 0) {
+          let osc = audioCtx.createOscillator();
+          osc.type = 'sine';
+          osc.frequency.setValueAtTime(seq.note, now);
+          osc.connect(gain);
+          osc.start(now);
+          osc.stop(now + seq.duration * 0.9);
+        }
+        
+        stepIndex++;
+        
+        const nextTime = now + seq.duration;
+        const delay = (nextTime - audioCtx.currentTime) * 1000;
+        
+        if (delay > 0) {
+            backgroundMusic = setTimeout(playNextNote, delay);
+        } else {
+            backgroundMusic = setTimeout(playNextNote, 1);
+        }
+      }
+      playNextNote();
+    }
+
+    function stopMusic() {
+        if(backgroundMusic) {
+            clearTimeout(backgroundMusic);
+            backgroundMusic = null;
+        }
+    }
+
+    function playSound(type) {
+      if(!audioCtx) return;
+
+      const now = audioCtx.currentTime;
+      let osc = audioCtx.createOscillator();
+      let gainNode = audioCtx.createGain();
+      
+      const filter = audioCtx.createBiquadFilter();
+      filter.type = 'lowpass';
+      filter.frequency.setValueAtTime(2000, now); 
+
+      osc.connect(filter);
+      filter.connect(gainNode);
+      gainNode.connect(audioCtx.destination);
+
+      switch(type) {
+        case 'jump':
+          osc.type = 'sine';
+          osc.frequency.setValueAtTime(400, now);
+          gainNode.gain.setValueAtTime(0, now);
+          gainNode.gain.linearRampToValueAtTime(0.2, now + 0.04);
+          gainNode.gain.linearRampToValueAtTime(0, now + 0.18);
+          break;
+        case 'walljump':
+          osc.type = 'triangle';
+          osc.frequency.setValueAtTime(600, now);
+          gainNode.gain.setValueAtTime(0, now);
+          gainNode.gain.linearRampToValueAtTime(0.25, now + 0.05);
+          gainNode.gain.linearRampToValueAtTime(0, now + 0.25);
+          break;
+        case 'dash':
+          osc.type = 'square';
+          osc.frequency.setValueAtTime(800, now);
+          gainNode.gain.setValueAtTime(0, now);
+          gainNode.gain.linearRampToValueAtTime(0.3, now + 0.05);
+          gainNode.gain.linearRampToValueAtTime(0, now + 0.1);
+          break;
+        case 'win':
+          osc.type = 'sine';
+          osc.frequency.setValueAtTime(700, now); 
+          gainNode.gain.setValueAtTime(0, now);
+          gainNode.gain.linearRampToValueAtTime(0.4, now + 0.05);
+          gainNode.gain.linearRampToValueAtTime(0, now + 0.5);
+          break;
+        case 'gameover':
+          osc.type = 'sine';
+          osc.frequency.setValueAtTime(150, now);
+          gainNode.gain.setValueAtTime(0.4, now);
+          gainNode.gain.exponentialRampToValueAtTime(0.001, now + 0.7);
+          break;
+      }
+
+      osc.start(now);
+      osc.stop(now + 0.5);
+    }
+
+    function init() {
+      scene = new THREE.Scene();
+      scene.background = new THREE.Color(0x87ceeb);
+
+      camera = new THREE.PerspectiveCamera(60, window.innerWidth/window.innerHeight, 0.1, 1000);
+
+      renderer = new THREE.WebGLRenderer({antialias:true});
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      renderer.shadowMap.enabled = true;
+      // This line is where the canvas is inserted. If code fails before here, you only see text.
+      document.getElementById('canvas-holder').appendChild(renderer.domElement);
+
+      const hemi = new THREE.HemisphereLight(0xffffff, 0x444444, 0.6);
+      hemi.position.set(0, 50, 0);
+      scene.add(hemi);
+
+      const dir = new THREE.DirectionalLight(0xffffff, 0.8);
+      dir.position.set(10, 20, 10);
+      dir.castShadow = true;
+      dir.shadow.mapSize.set(1024,1024);
+      scene.add(dir);
+
+      const geom = new THREE.BoxGeometry(1,1,1);
+      const mat = new THREE.MeshStandardMaterial({color:defaultPlayerColor});
+      player = new THREE.Mesh(geom, mat);
+      player.castShadow = true;
+      player.receiveShadow = true;
+      player.position.set(0,2,0);
+      scene.add(player);
+
+      // Base ground platform
+      addPlatform(0, -1, 0, 20, 1, 20, 0x556b2f);
+
+      // Platform params
+      const platformWidth = 5;
+      const platformHeight = 0.5;
+      let zPos = -2;
+      let yPos = 0;
+
+      // Spike geometry - pyramid
+      const spikeGeometry = new THREE.ConeGeometry(0.5, 1, 4);
+      const spikeMaterial = new THREE.MeshStandardMaterial({color: 0x666666});
+
+      // Wall geometry
+      const wallMaterial = new THREE.MeshStandardMaterial({color: 0x444444});
+      const tallWallGeometry = new THREE.BoxGeometry(0.5, 8, 8);
+      // Removed the redundant 'longWallGeometry' definition here
+
+      // --- Level Design ---
+
+      // 1. Initial Jump Test
+      zPos += 4 + 1.5;
+      addPlatform(0, yPos, zPos, platformWidth, platformHeight, 5, 0x8b4513);
+      zPos += 5 + 1;
+
+      // 2. Climbing Wall 1
+      yPos += 1.2;
+      let plat1 = addPlatform(-5, yPos, zPos, 4, platformHeight, 5, 0x8b4513);
+      
+      let tallLeftWall = new THREE.Mesh(tallWallGeometry, wallMaterial);
+      tallLeftWall.position.set(plat1.position.x - 1.5, plat1.position.y + 4, plat1.position.z);
+      scene.add(tallLeftWall);
+      walls.push(tallLeftWall);
+
+      let tallRightWall = new THREE.Mesh(tallWallGeometry, wallMaterial);
+      tallRightWall.position.set(plat1.position.x - 3.5, plat1.position.y + 4, plat1.position.z);
+      scene.add(tallRightWall);
+      walls.push(tallRightWall);
+      
+      // Dash jump target 
+      zPos += 5 + 2;
+      yPos += 2.5;
+      addPlatform(5, yPos, zPos, 5, platformHeight, 5, 0x8b4513);
+      
+      // 3. Low Ceiling Dash Section 
+      yPos += 1;
+      zPos += 5 + 1;
+      let lowPlat = addPlatform(10, yPos, zPos, 6, platformHeight, 3, 0x8b4513);
+
+      // Low ceiling above the platform
+      addPlatform(10, yPos + 1.5, zPos, 6, 0.2, 3, 0x777777); 
+
+      yPos += 0.5;
+      zPos += 5;
+      addPlatform(10, yPos, zPos, 5, platformHeight, 5, 0x8b4513);
+
+      // 4. Moving Platform Challenge with Spike
+      yPos += 1;
+      zPos += 5 + 2;
+      let movingPlat = addPlatform(5, yPos, zPos, 4, platformHeight, 4, 0x1e90ff);
+      movingPlat.userData.moving = {amplitude:4, speed:0.8, axis:'x', base: movingPlat.position.x};
+
+      // Spike on moving platform
+      let spike = new THREE.Mesh(spikeGeometry, spikeMaterial);
+      spike.castShadow = true;
+      spike.receiveShadow = true;
+      spike.position.set(movingPlat.position.x, movingPlat.position.y + platformHeight/2 + 0.5, movingPlat.position.z);
+      scene.add(spike);
+      spikes.push({mesh: spike, platform: movingPlat});
+
+      // --- 5. WALL CLIMB TOWER SECTION (New) ---
+      const towerHeight = 12; 
+      const towerWidth = 5;  
+      
+      // Reset Y position for new platform entry
+      yPos = movingPlat.position.y + platformHeight/2 + 0.01;
+      zPos += 8; 
+
+      // Plataforma de entrada na torre
+      let towerEntrance = addPlatform(5, yPos, zPos, 5, platformHeight, 5, 0x8b4513);
+      
+      // Parede Traseira (fundo da torre)
+      // Note: We use a new BoxGeometry here instead of relying on a potentially conflicting 'longWallGeometry' variable
+      let backWall = new THREE.Mesh(new THREE.BoxGeometry(towerWidth + 2, towerHeight, 0.5), wallMaterial);
+      backWall.position.set(towerEntrance.position.x, towerEntrance.position.y + towerHeight/2, towerEntrance.position.z + 2.5);
+      scene.add(backWall);
+      walls.push(backWall);
+
+      // Parede Esquerda
+      let leftWall = new THREE.Mesh(new THREE.BoxGeometry(0.5, towerHeight, 5), wallMaterial);
+      leftWall.position.set(towerEntrance.position.x - (towerWidth/2) - 0.25, towerEntrance.position.y + towerHeight/2, towerEntrance.position.z);
+      scene.add(leftWall);
+      walls.push(leftWall);
+
+      // Parede Direita
+      let rightWall = new THREE.Mesh(new THREE.BoxGeometry(0.5, towerHeight, 5), wallMaterial);
+      rightWall.position.set(towerEntrance.position.x + (towerWidth/2) + 0.25, towerEntrance.position.y + towerHeight/2, towerEntrance.position.z);
+      scene.add(rightWall);
+      walls.push(rightWall);
+      
+      // Plataforma de Saída (no topo da torre)
+      yPos += towerHeight + 0.5;
+      let towerExit = addPlatform(5, yPos, zPos, 4, platformHeight, 4, 0x556b2f); 
+
+      // --- 6. Final Jump to Win ---
+      
+      yPos += 3;
+      zPos += 5;
+      const winP = addPlatform(5, yPos, zPos, 6, 0.5, 6, 0xffff00);
+      winP.userData.win = true;
+
+
+      window.addEventListener('resize', onWindowResize);
+      window.addEventListener('keydown', e => {
+        keys[e.code] = true;
+        if(e.code === 'Space' || keys['Numpad0']){
+          jumpInputBufferTimer = JUMP_INPUT_BUFFER_TIME;
+        }
+        if(e.code === 'ShiftLeft' && dashCooldownTimer <= 0 && !isDashing){
+            let dirX = 0, dirZ = 0;
+            if(keys['KeyW'] || keys['ArrowUp']) dirZ -= 1;
+            if(keys['KeyS'] || keys['ArrowDown']) dirZ += 1;
+            if(keys['KeyA'] || keys['ArrowLeft']) dirX -= 1;
+            if(keys['KeyD'] || keys['ArrowRight']) dirX += 1;
+            
+            let angle = orbitAngleY;
+            let forward = new THREE.Vector3(Math.sin(angle), 0, Math.cos(angle));
+            let right = new THREE.Vector3(Math.cos(angle), 0, -Math.sin(angle));
+            
+            dashDirection.set(0,0,0);
+            if(dirX !== 0 || dirZ !== 0) {
+                dashDirection.addScaledVector(forward, dirZ);
+                dashDirection.addScaledVector(right, dirX);
+                dashDirection.normalize();
+            } else {
+                dashDirection.copy(forward);
+            }
+
+            isDashing = true;
+            dashTimer = DASH_DURATION;
+            player.material.color.setHex(dashPlayerColor);
+            playSound('dash');
+            
+            velocity.y = Math.min(velocity.y, 0.5); 
+        }
+      });
+      window.addEventListener('keyup', e => keys[e.code] = false);
+
+      renderer.domElement.addEventListener('mousedown', onMouseDown);
+      window.addEventListener('mouseup', onMouseUp);
+      window.addEventListener('mousemove', onMouseMove);
+    }
+
+    function addPlatform(x,y,z,w,h,d,color) {
+      const g = new THREE.BoxGeometry(w,h,d);
+      const m = new THREE.MeshStandardMaterial({color: color});
+      const mesh = new THREE.Mesh(g,m);
+      mesh.receiveShadow = true;
+      mesh.position.set(x,y,z);
+      mesh.userData.size = {x:w,y:h,z:d};
+      scene.add(mesh);
+      platforms.push(mesh);
+      return mesh;
+    }
+
+    function onWindowResize() {
+      camera.aspect = window.innerWidth/window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    }
+
+    function aabbIntersect(aPos, aSize, bPos, bSize) {
+      return Math.abs(aPos.x - bPos.x) <= (aSize.x + bSize.x) &&
+             Math.abs(aPos.y - bPos.y) <= (aSize.y + bSize.y) &&
+             Math.abs(aPos.z - bPos.z) <= (aSize.z + bSize.z);
+    }
+
+    function handleJump(isWallJump, wallDir) {
+        if(isWallJump) {
+            velocity.y = WALL_JUMP_POWER;
+            velocity.x = -8 * wallDir;
+            playSound('walljump');
+            canWallJump = false;
+            wallJumpCoyoteTimer = 0;
+        } else {
+            velocity.y = JUMP_POWER;
+            playSound('jump');
+        }
+        onGround = false;
+        jumpInputBufferTimer = 0;
+    }
+
+    function physics(delta) {
+      if(gameOver || win) return;
+
+      // Update timers
+      if (!canWallJump && !onGround) {
+        wallJumpCoyoteTimer = Math.max(0, wallJumpCoyoteTimer - delta);
+      }
+      jumpInputBufferTimer = Math.max(0, jumpInputBufferTimer - delta);
+      dashCooldownTimer = Math.max(0, dashCooldownTimer - delta);
+
+      // Handle Dash Logic 
+      if(isDashing) {
+          dashTimer -= delta;
+          if(dashTimer <= 0) {
+              isDashing = false;
+              dashCooldownTimer = DASH_COOLDOWN;
+              player.material.color.setHex(defaultPlayerColor);
+              velocity.x *= 0.5; 
+              velocity.z *= 0.5;
+          } else {
+              player.position.addScaledVector(dashDirection, DASH_SPEED * delta);
+              onGround = false;
+              return; 
+          }
+      }
+
+      let isTouchingWall = false;
+      let currentWallDir = 0;
+
+      // 1. Horizontal Movement 
+      let dirX = 0, dirZ = 0;
+      if(keys['KeyW'] || keys['ArrowUp']) dirZ -= 1;
+      if(keys['KeyS'] || keys['ArrowDown']) dirZ += 1;
+      if(keys['KeyA'] || keys['ArrowLeft']) dirX -= 1;
+      if(keys['KeyD'] || keys['ArrowRight']) dirX += 1;
+
+      const speed = 6;
+      if(dirX !== 0 || dirZ !== 0) {
         let angle = orbitAngleY;
         let forward = new THREE.Vector3(Math.sin(angle), 0, Math.cos(angle));
         let right = new THREE.Vector3(Math.cos(angle), 0, -Math.sin(angle));
-        
-        dashDirection.set(0,0,0);
-        if(dirX !== 0 || dirZ !== 0) {
-            dashDirection.addScaledVector(forward, dirZ);
-            dashDirection.addScaledVector(right, dirX);
-            dashDirection.normalize();
-        } else {
-            dashDirection.copy(forward);
+        let moveDir = new THREE.Vector3();
+        moveDir.addScaledVector(forward, dirZ);
+        moveDir.addScaledVector(right, dirX);
+        moveDir.normalize();
+        player.position.addScaledVector(moveDir, speed * delta);
+      }
+      
+      // 2. Wall detection for wall jump
+      const pPos = player.position.clone();
+      const half = {x:0.5,y:0.5,z:0.5};
+
+      for(let w of walls){
+        const wPos = w.position;
+        const wSize = {x:w.geometry.parameters.width/2, y:w.geometry.parameters.height/2, z:w.geometry.parameters.depth/2};
+        if(aabbIntersect(pPos, half, wPos, wSize)){
+          let diffX = pPos.x - wPos.x;
+          if(Math.abs(diffX) > 0.01){
+            isTouchingWall = true;
+            currentWallDir = diffX > 0 ? 1 : -1;
+            break;
+          }
         }
+      }
 
-        isDashing = true;
-        dashTimer = DASH_DURATION;
-        player.material.color.setHex(dashPlayerColor);
-        playSound('dash');
+      if (isTouchingWall && !onGround) {
+        canWallJump = true;
+        wallJumpDirection = currentWallDir;
+        wallJumpCoyoteTimer = WALL_JUMP_COYOTE_TIME;
         
-        velocity.y = Math.min(velocity.y, 0.5); 
-    }
-  });
-  window.addEventListener('keyup', e => keys[e.code] = false);
+        // Wall Slide
+        if (velocity.y < 0) {
+            velocity.y = Math.max(velocity.y, -1.5);
+        }
+      } else if (!isTouchingWall && canWallJump) {
+          canWallJump = false;
+      } else if (onGround) {
+          canWallJump = false;
+          wallJumpCoyoteTimer = 0;
+      }
+      
+      // 3. Jump Execution
+      const isJumpPressed = (keys['Space'] || keys['Numpad0']);
+      const canJump = onGround && isJumpPressed;
+      const canWallJumpNow = isTouchingWall && jumpInputBufferTimer > 0;
+      const canCoyoteJump = wallJumpCoyoteTimer > 0 && isJumpPressed && !onGround && !isTouchingWall;
 
-  renderer.domElement.addEventListener('mousedown', onMouseDown);
-  window.addEventListener('mouseup', onMouseUp);
-  window.addEventListener('mousemove', onMouseMove);
-}
+      if(canJump){
+        handleJump(false, 0);
+      } else if(canWallJumpNow){
+        handleJump(true, currentWallDir);
+      } else if(canCoyoteJump){
+        handleJump(true, wallJumpDirection); 
+      }
+
+      // Apply Gravity
+      velocity.y -= 9.8 * delta;
+
+      // Apply velocity X/Z (from wall jump or previous dash)
+      player.position.x += velocity.x * delta;
+      velocity.x *= 0.8; 
+      player.position.z += velocity.z * delta; 
+      velocity.z *= 0.8;
+
+      player.position.y += velocity.y * delta;
+
+      onGround = false;
+
+      // 4. Platform Collision
+      for(let pl of platforms) {
+        if(pl.userData.moving){
+          const t = performance.now()/1000;
+          const m = pl.userData.moving;
+          if(m.axis === 'x') pl.position.x = m.base + Math.sin(t*m.speed) * m.amplitude;
+          else pl.position.z = m.base + Math.sin(t*m.speed) * m.amplitude;
+        }
+        const size = {x:pl.userData.size.x/2, y:pl.userData.size.y/2, z:pl.userData.size.z/2};
+        if(aabbIntersect(pPos, half, pl.position, size)) {
+          const playerBottom = player.position.y - 0.5;
+          const plTop = pl.position.y + size.y;
+          const penetration = plTop - playerBottom;
+          if(velocity.y <= 0 && penetration > 0 && Math.abs(player.position.x - pl.position.x) < (size.x+half.x) && Math.abs(player.position.z - pl.position.z) < (size.z+half.z)){
+            player.position.y += penetration + 0.001;
+            velocity.y = 0;
+            onGround = true;
+            velocity.x = 0;
+            velocity.z = 0;
+
+            if(pl.userData.moving){
+              player.position.x += (pl.position.x - (pl.userData._lastX ?? pl.position.x));
+              player.position.z += (pl.position.z - (pl.userData._lastZ ?? pl.position.z));
+            }
+
+            if(pl.userData.win && !win){
+              win = true;
+              playSound('win');
+              stopMusic();
+              showWin();
+            }
+            
+            canWallJump = false;
+            wallJumpCoyoteTimer = 0;
+            dashCooldownTimer = 0; 
+          }
+          pl.userData._lastX = pl.position.x;
+          pl.userData._lastZ = pl.position.z;
+        }
+      }
+
+      // 5. Collide with walls
+      for(let w of walls){
+        const wPos = w.position;
+        const wSize = {x:w.geometry.parameters.width/2, y:w.geometry.parameters.height/2, z:w.geometry.parameters.depth/2};
+        if(aabbIntersect(player.position, half, wPos, wSize)){
+          let diffX = player.position.x - wPos.x;
+          let diffZ = player.position.z - wPos.z;
+          
+          if(Math.abs(diffX) > Math.abs(diffZ)) {
+              if(diffX > 0){
+                player.position.x = wPos.x + wSize.x + 0.5 + 0.01;
+                velocity.x = Math.max(velocity.x, 0);
+              } else {
+                player.position.x = wPos.x - wSize.x - 0.5 - 0.01;
+                velocity.x = Math.min(velocity.x, 0);
+              }
+          } else {
+              if(diffZ > 0){
+                player.position.z = wPos.z + wSize.z + 0.5 + 0.01;
+                velocity.z = Math.max(velocity.z, 0);
+              } else {
+                player.position.z = wPos.z - wSize.z - 0.5 - 0.01;
+                velocity.z = Math.min(velocity.z, 0);
+              }
+          }
+        }
+      }
+
+      // 6. Check spikes collision (game over)
+      for(let s of spikes){
+        const sp = s.mesh.position;
+        if(player.position.distanceTo(sp) < 0.7){
+          triggerGameOver();
+          break;
+        }
+      }
+
+      // Keep player above the floor plane
+      if(player.position.y < -5){
+        triggerGameOver();
+      }
+    }
+
+    function triggerGameOver() {
+      if(gameOver) return;
+      gameOver = true;
+      playSound('gameover');
+      stopMusic();
+      document.getElementById('gameOverPanel').style.display = '';
+      document.getElementById('overlay').style.display = '';
+      document.getElementById('startPanel').style.display = 'none';
+      document.getElementById('winPanel').style.display = 'none';
+    }
+
+    function updateCamera() {
+      cameraTarget.x = THREE.MathUtils.lerp(cameraTarget.x, player.position.x, CAMERA_SMOOTHING);
+      cameraTarget.y = THREE.MathUtils.lerp(cameraTarget.y, player.position.y + 0.5, CAMERA_SMOOTHING);
+      cameraTarget.z = THREE.MathUtils.lerp(cameraTarget.z, player.position.z, CAMERA_SMOOTHING);
+      
+      orbitAngleX = Math.min(Math.max(0.1, orbitAngleX), Math.PI/2 - 0.1);
+      const x = cameraTarget.x + orbitRadius * Math.cos(orbitAngleX) * Math.sin(orbitAngleY);
+      const y = cameraTarget.y + orbitRadius * Math.sin(orbitAngleX);
+      const z = cameraTarget.z + orbitRadius * Math.cos(orbitAngleX) * Math.cos(orbitAngleY);
+      camera.position.set(x, y, z);
+      camera.lookAt(cameraTarget);
+    }
+
+    function animate() {
+      const delta = Math.min(0.05, clock.getDelta());
+      physics(delta);
+      updateCamera();
+      renderer.render(scene, camera);
+      if(!gameOver && !win) requestAnimationFrame(animate);
+    }
+
+    function respawn() {
+      player.position.set(0, 2, 0);
+      velocity.set(0,0,0);
+      win = false;
+      gameOver = false;
+      canWallJump = false;
+      wallJumpDirection = 0;
+      wallJumpCoyoteTimer = 0;
+      jumpInputBufferTimer = 0;
+      isDashing = false;
+      dashCooldownTimer = 0;
+      player.material.color.setHex(defaultPlayerColor);
+      
+      // Menu Management: Hide all panels, start music, show canvas
+      document.getElementById('winPanel').style.display = 'none';
+      document.getElementById('gameOverPanel').style.display = 'none';
+      document.getElementById('startPanel').style.display = 'none';
+      document.getElementById('overlay').style.display = 'none';
+
+      clock.start();
+      playMusic();
+      animate();
+    }
+
+    function showWin() {
+      stopMusic();
+      document.getElementById('winPanel').style.display = '';
+      document.getElementById('overlay').style.display = '';
+      document.getElementById('startPanel').style.display = 'none';
+      document.getElementById('gameOverPanel').style.display = 'none';
+    }
+
+    function onMouseDown(e) {
+      isDragging = true;
+      dragStart.x = e.clientX;
+      dragStart.y = e.clientY;
+    }
+
+    function onMouseUp() {
+      isDragging = false;
+    }
+
+    function onMouseMove(e) {
+      if(!isDragging) return;
+      let deltaX = e.clientX - dragStart.x;
+      let deltaY = e.clientY - dragStart.y;
+      dragStart.x = e.clientX;
+      dragStart.y = e.clientY;
+      orbitAngleY -= deltaX * dragSensitivity;
+      orbitAngleX -= deltaY * dragSensitivity;
+    }
+
+    window.addEventListener('DOMContentLoaded', () => {
+      audioCtx = new AudioContext();
+      init();
+      cameraTarget.copy(player.position);
+      cameraTarget.y += 0.5;
+
+      document.getElementById('startBtn').addEventListener('click', () => {
+        if(audioCtx.state === 'suspended') audioCtx.resume();
+        document.getElementById('overlay').style.display = 'none';
+        clock.start();
+        playMusic();
+        animate();
+      });
+      document.getElementById('restartBtn').addEventListener('click', () => respawn());
+      document.getElementById('gameOverRestartBtn').addEventListener('click', () => respawn());
+      
+      window.addEventListener('keydown', e => {
+        if(e.code === 'KeyR' && (gameOver || win)) respawn();
+      });
+    });
+</script>
