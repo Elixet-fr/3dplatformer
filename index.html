@@ -377,6 +377,13 @@
 
     // --- Game Engine ---
 
+    // ** DEFINED BEFORE INIT TO FIX REFERENCE ERROR **
+    function onWindowResize() {
+      camera.aspect = window.innerWidth/window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    }
+
     function init() {
       // Setup Three.js
       scene = new THREE.Scene();
@@ -624,7 +631,7 @@
                     velocity.x = 0;
                 } else {
                     // Z Collision
-                    if (pPos.z > wPos.z) { player.position.z += penZ; isTouchingWall = true; currentWallDir = 1; } // Simplify Z dir
+                    if (pPos.z > wPos.z) { player.position.z += penZ; isTouchingWall = true; currentWallDir = 1; } 
                     else { player.position.z -= penZ; isTouchingWall = true; currentWallDir = -1; }
                     velocity.z = 0;
                 }
@@ -649,10 +656,7 @@
             
             if (canWallJump && !onGround) {
                 // Wall jump push
-                // Simplified push logic: Push opposite to current velocity or wall normal
-                // Since we resolved collision, we know we are 'inside' slightly, just push back
-                velocity.x = -8 * (player.position.x - pPos.x > 0 ? 1 : -1); // Roughly opposite
-                // Hacky fix for Z walls:
+                velocity.x = -8 * (player.position.x - pPos.x > 0 ? 1 : -1); 
                 if (Math.abs(velocity.x) < 1) velocity.z = -8 * (player.position.z - pPos.z > 0 ? 1 : -1);
                 
                 horizontalLockoutTimer = WALL_JUMP_LOCKOUT_TIME;
@@ -704,17 +708,6 @@
                     // Win Check
                     if (pl.userData.win && !win) {
                         winStage();
-                    }
-                    
-                    // Stick to moving platform
-                    if (pl.userData.moving) {
-                        // Simple sticky logic: move player by platform delta
-                        // (Omitted for brevity, handled by friction usually, but here we just rely on absolute pos updates)
-                        // A better way for single file:
-                        if (pl.userData.moving.axis === 'x') {
-                             // Calculate delta of platform? Or just let friction handle it?
-                             // For this simple engine, we don't stick perfectly without delta tracking.
-                        }
                     }
                 }
             }
