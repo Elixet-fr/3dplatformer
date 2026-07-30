@@ -4,13 +4,13 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>3D Platformer - World Map Edition</title>
-  
+
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🗺️</text></svg>">
-  
+
   <style>
     html, body { height: 100%; margin: 0; overflow: hidden; }
     body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #000; }
-    
+
     #ui {
       position: absolute;
       left: 16px;
@@ -22,7 +22,7 @@
       text-shadow: 1px 1px 2px black;
       pointer-events: none;
     }
-    
+
     #minimap-container {
         position: absolute;
         top: 16px;
@@ -40,7 +40,7 @@
         height: 100%;
         display: block;
     }
-    
+
     /* Overlay Styles */
     #overlay {
       position: absolute;
@@ -49,7 +49,7 @@
       align-items: center;
       justify-content: center;
       z-index: 3;
-      background: rgba(0,0,0,0.6); 
+      background: rgba(0,0,0,0.6);
       backdrop-filter: blur(4px);
       transition: opacity 0.3s;
     }
@@ -76,7 +76,9 @@
         gap: 15px;
         margin-top: 15px;
         text-align: left;
+        align-items: center;
     }
+    .settings-grid input[type="range"] { width: 100%; }
     button {
       padding: 10px 20px;
       border-radius: 6px;
@@ -103,7 +105,7 @@
   </div>
 
   <div id="overlay">
-    
+
     <div class="panel" id="mainMenuPanel">
       <h2 style="margin:0 0 15px 0">3D Platformer</h2>
       <div>Use the map to select your level.</div>
@@ -111,25 +113,66 @@
       <button id="showSettingsBtn">Settings</button>
       <button id="showControlsBtn">Controls</button>
     </div>
-    
-    <div class="panel" id="controlsPanel" style="display:none;">...</div>
-    <div class="panel" id="settingsPanel" style="display:none;">...</div>
-    <div class="panel" id="winPanel" style="display:none;">...</div>
-    <div class="panel" id="gameOverPanel" style="display:none;">...</div>
-    <div class="panel" id="pausePanel" style="display:none;">...</div>
+
+    <div class="panel" id="controlsPanel" style="display:none;">
+      <h2 style="margin:0 0 15px 0">Controls</h2>
+      <div style="text-align:left; line-height:1.9;">
+        <div><strong>WASD / Arrows</strong> — Move</div>
+        <div><strong>Space</strong> — Jump (also wall-jump near walls)</div>
+        <div><strong>Shift</strong> — Dash</div>
+        <div><strong>Mouse</strong> — Look around (pointer locks in-level)</div>
+        <div><strong>R</strong> — Restart current level</div>
+        <div><strong>Esc</strong> — Pause / Menu</div>
+      </div>
+      <button id="closeControlsBtn" style="margin-top:20px;">Back</button>
+    </div>
+
+    <div class="panel" id="settingsPanel" style="display:none;">
+      <h2 style="margin:0 0 15px 0">Settings</h2>
+      <div class="settings-grid">
+        <label for="volumeSlider">Volume</label>
+        <input type="range" id="volumeSlider" min="0" max="1" step="0.05" value="0.5">
+        <label for="colorPicker">Player Color</label>
+        <input type="color" id="colorPicker" value="#FF8C00">
+        <label for="cameraDistanceSlider">Camera Distance</label>
+        <input type="range" id="cameraDistanceSlider" min="6" max="24" step="1" value="14">
+      </div>
+      <button id="closeSettingsBtn" style="margin-top:20px;">Back</button>
+    </div>
+
+    <div class="panel" id="winPanel" style="display:none;">
+      <h2 style="margin:0 0 15px 0; color:#ffd700;">World Clear!</h2>
+      <div>Nice work — you reached the goal.</div>
+      <button id="nextLevelBtn" style="margin-top:20px;">Next Level</button>
+      <button id="menuBtnWin">World Map</button>
+    </div>
+
+    <div class="panel" id="gameOverPanel" style="display:none;">
+      <h2 style="margin:0 0 15px 0; color:#ff5555;">You Fell!</h2>
+      <div>Give it another shot.</div>
+      <button id="gameOverRestartBtn" style="margin-top:20px;">Retry</button>
+      <button id="menuBtnLose">World Map</button>
+    </div>
+
+    <div class="panel" id="pausePanel" style="display:none;">
+      <h2 style="margin:0 0 15px 0">Paused</h2>
+      <button id="resumeBtn" style="margin-top:10px;">Resume</button>
+      <button id="pauseRestartBtn">Restart Level</button>
+      <button id="menuBtnPause">World Map</button>
+    </div>
   </div>
-  
+
   <div id="canvas-holder"></div>
 
-  <script src="https://cdn.jsdelivr.net/npm/three@0.152.2/build/three.min.js"></script>
-  
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+
   <script>
     // --- Global Variables ---
     let renderer;
-    // Two Scenes/Cameras: 
+    // Two Scenes/Cameras:
     let scene, camera; // 3D Platformer
     let mapScene, mapCamera; // World Map
-    
+
     let player, platforms = [], walls = [], hazards = [];
     let velocity = new THREE.Vector3();
     let onGround = false;
@@ -139,22 +182,26 @@
 
     // --- State Management ---
     let gameState = 'MENU'; // 'MENU', 'MAP', 'LEVEL', 'PAUSED'
+    let previousState = 'MAP'; // state to restore to when un-pausing
     let win = false;
     let gameOver = false;
-    let isPaused = true; 
+    let isPaused = true;
 
     // --- Level Management ---
     let currentStage = 1;
-    const TOTAL_STAGES = 3; 
-    let maxStageReached = 1; 
+    const TOTAL_STAGES = 6;
+    let maxStageReached = 1;
 
     // --- Map Variables ---
     let mapPlayer;
     let levelButtons = [];
     const MAP_LEVEL_POSITIONS = [
-        { x: -5, z: 0, stage: 1 }, 
-        { x: 5, z: 0, stage: 2 }, 
-        { x: 15, z: 0, stage: 3 }
+        { x: -5, z: 0, stage: 1 },
+        { x: 5, z: 0, stage: 2 },
+        { x: 15, z: 0, stage: 3 },
+        { x: 25, z: 0, stage: 4 },
+        { x: 35, z: 0, stage: 5 },
+        { x: 45, z: 0, stage: 6 }
     ];
     let mapTargetPosition = new THREE.Vector3();
     const raycaster = new THREE.Raycaster();
@@ -163,7 +210,7 @@
 
     // --- Settings ---
     let currentSettings = {
-        volume: 0.5, 
+        volume: 0.5,
         playerColor: '#FF8C00',
         cameraDistance: 14,
     };
@@ -174,20 +221,20 @@
     let wallJumpCoyoteTimer = 0;
     const JUMP_INPUT_BUFFER_TIME = 0.2;
     let jumpInputBufferTimer = 0;
-    const WALL_JUMP_LOCKOUT_TIME = 0.2; 
-    let horizontalLockoutTimer = 0; 
+    const WALL_JUMP_LOCKOUT_TIME = 0.2;
+    let horizontalLockoutTimer = 0;
 
     let isDashing = false;
     const DASH_SPEED = 25;
     const DASH_DURATION = 0.15;
     let dashTimer = 0;
-    const DASH_COOLDOWN = 0.6; 
+    const DASH_COOLDOWN = 0.6;
     let dashCooldownTimer = 0;
     let dashDirection = new THREE.Vector3();
-    
+
     const JUMP_POWER = 14.0;
     const WALL_JUMP_POWER = 16.0;
-    const GRAVITY = 50.0; 
+    const GRAVITY = 50.0;
 
     let orbitAngleX = Math.PI / 4;
     let orbitAngleY = 0;
@@ -197,7 +244,7 @@
     const AudioContext = window.AudioContext || window.webkitAudioContext;
     let audioCtx;
     let backgroundMusic = null;
-    let musicGainNode = null; 
+    let musicGainNode = null;
 
     // Utility to brighten a hex color
     function brightenColor(hex, factor) {
@@ -213,7 +260,21 @@
     }
 
     // --- Persistence & Settings ---
-    // (Omitted for brevity, assume loadSettings/saveSettings is present and working)
+    function loadSettings() {
+        updateLevelGrid();
+    }
+
+    // --- Music (simple stubs - safe to call, avoid crashing the game loop) ---
+    function playMusic() {
+        if (audioCtx && audioCtx.state === 'suspended') {
+            audioCtx.resume().catch(() => {});
+        }
+        // Hook point: start/continue background music here if desired.
+    }
+
+    function stopMusic() {
+        // Hook point: stop background music here if desired.
+    }
 
     // --- Core Engine ---
 
@@ -221,19 +282,14 @@
         const width = window.innerWidth;
         const height = window.innerHeight;
         renderer.setSize(width, height);
-        
+
         if (camera) {
             camera.aspect = width / height;
             camera.updateProjectionMatrix();
         }
-        
+
         if (mapCamera) {
-            const aspect = width / height;
-            const size = 30; // Ortho size
-            mapCamera.left = -size * aspect;
-            mapCamera.right = size * aspect;
-            mapCamera.top = size;
-            mapCamera.bottom = -size;
+            mapCamera.aspect = width / height;
             mapCamera.updateProjectionMatrix();
         }
     }
@@ -241,7 +297,7 @@
     function createPlatformerScene() {
         scene = new THREE.Scene();
         camera = new THREE.PerspectiveCamera(60, window.innerWidth/window.innerHeight, 0.1, 1000);
-        
+
         const hemi = new THREE.HemisphereLight(0xffffff, 0x444444, 0.6);
         scene.add(hemi);
         const dir = new THREE.DirectionalLight(0xffffff, 0.8);
@@ -256,26 +312,36 @@
         player.castShadow = true;
         scene.add(player);
     }
-    
+
     function createMapScene() {
         mapScene = new THREE.Scene();
+        mapScene.background = new THREE.Color(0x87ceeb);
         const aspect = window.innerWidth / window.innerHeight;
-        const size = 30;
-        
-        // Orthographic Camera for 2D Map Look
-        mapCamera = new THREE.OrthographicCamera(-size * aspect, size * aspect, size, -size, 0.1, 100);
-        mapCamera.position.set(0, 10, 0); // Position high above
-        mapCamera.lookAt(0, 0, 0);
-        
-        // Light
-        mapScene.add(new THREE.AmbientLight(0xffffff, 1.0));
-        
-        // Map Ground
+
+        const nodeXs = MAP_LEVEL_POSITIONS.map(p => p.x);
+        const mapMinX = Math.min(...nodeXs);
+        const mapMaxX = Math.max(...nodeXs);
+        const mapCenterX = (mapMinX + mapMaxX) / 2;
+        const mapSpanX = mapMaxX - mapMinX;
+
+        // Fixed, zoomed-out 3D perspective camera framing the whole map (Mario-Wii-map style) - never moves
+        mapCamera = new THREE.PerspectiveCamera(50, aspect, 0.1, 400);
+        mapCamera.position.set(mapCenterX, 30 + mapSpanX * 0.3, 40 + mapSpanX * 0.3);
+        mapCamera.lookAt(mapCenterX, 0, 0);
+
+        // Lights - directional light gives the shapes real 3D shading, not flat silhouettes
+        mapScene.add(new THREE.AmbientLight(0xffffff, 0.6));
+        const mapSun = new THREE.DirectionalLight(0xffffff, 0.8);
+        mapSun.position.set(mapCenterX + 15, 25, 10);
+        mapScene.add(mapSun);
+
+        // Map Ground - sized and centered to cover the full path, however many worlds there are
         const mapGround = new THREE.Mesh(
-            new THREE.PlaneGeometry(50, 50),
+            new THREE.PlaneGeometry(mapSpanX + 40, 40),
             new THREE.MeshStandardMaterial({ color: 0x559955 })
         );
         mapGround.rotation.x = -Math.PI / 2;
+        mapGround.position.x = mapCenterX;
         mapScene.add(mapGround);
         mapGround.name = 'MapGround';
 
@@ -287,21 +353,88 @@
             const geo = new THREE.CylinderGeometry(1.5, 1.5, 0.2, 16);
             const mat = new THREE.MeshStandardMaterial({ color: buttonColor, emissive: isUnlocked ? 0x005500 : 0x000000 });
             const mesh = new THREE.Mesh(geo, mat);
-            
+
             mesh.position.set(pos.x, 0.1, pos.z);
             mesh.userData.stage = pos.stage;
             mesh.userData.unlocked = isUnlocked;
             mapScene.add(mesh);
             levelButtons.push(mesh);
         });
-        
-        // Map Player (Mario icon replacement)
-        const mapGeo = new THREE.SphereGeometry(0.5, 16, 16);
-        const mapMat = new THREE.MeshBasicMaterial({ color: 0xff4444 });
+
+        // Map Player - same orange cube as the in-level player, for visual consistency
+        const mapGeo = new THREE.BoxGeometry(1, 1, 1);
+        const mapMat = new THREE.MeshStandardMaterial({ color: currentSettings.playerColor });
         mapPlayer = new THREE.Mesh(mapGeo, mapMat);
+        mapPlayer.castShadow = true;
         mapPlayer.position.set(MAP_LEVEL_POSITIONS[currentStage - 1].x, 0.5, MAP_LEVEL_POSITIONS[currentStage - 1].z);
         mapScene.add(mapPlayer);
         mapTargetPosition.copy(mapPlayer.position);
+
+        createMapLabel();
+    }
+
+    // Floating "World N" label that fades in/out as the player nears/leaves a level node
+    let mapLabelSprite, mapLabelCanvas, mapLabelCtx, mapLabelTexture, mapLabelText = '';
+    let mapLabelOpacity = 0;
+
+    function createMapLabel() {
+        mapLabelCanvas = document.createElement('canvas');
+        mapLabelCanvas.width = 256;
+        mapLabelCanvas.height = 64;
+        mapLabelCtx = mapLabelCanvas.getContext('2d');
+        mapLabelTexture = new THREE.CanvasTexture(mapLabelCanvas);
+        const mat = new THREE.SpriteMaterial({ map: mapLabelTexture, transparent: true, depthTest: false, opacity: 0 });
+        mapLabelSprite = new THREE.Sprite(mat);
+        mapLabelSprite.scale.set(4, 1, 1);
+        mapLabelSprite.visible = false;
+        mapScene.add(mapLabelSprite);
+    }
+
+    function setMapLabelText(text) {
+        if (text === mapLabelText) return;
+        mapLabelText = text;
+        const ctx = mapLabelCtx;
+        ctx.clearRect(0, 0, mapLabelCanvas.width, mapLabelCanvas.height);
+        if (text) {
+            ctx.fillStyle = 'rgba(0,0,0,0.55)';
+            ctx.fillRect(4, 8, mapLabelCanvas.width - 8, mapLabelCanvas.height - 16);
+            ctx.fillStyle = '#ffffff';
+            ctx.font = 'bold 32px sans-serif';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(text, mapLabelCanvas.width / 2, mapLabelCanvas.height / 2);
+        }
+        mapLabelTexture.needsUpdate = true;
+    }
+
+    const LABEL_FADE_IN_DIST = 2.5;   // fully visible within this range of a node
+    const LABEL_FADE_OUT_DIST = 4.5;  // fully hidden beyond this range
+    const LABEL_FADE_SPEED = 6;       // higher = snappier fade
+
+    function updateMapLabel(delta) {
+        if (!mapLabelSprite || !mapPlayer) return;
+        mapLabelSprite.position.set(mapPlayer.position.x, mapPlayer.position.y + 2.4, mapPlayer.position.z);
+
+        let nearest = null, nearestDist = Infinity;
+        MAP_LEVEL_POSITIONS.forEach(pos => {
+            const dx = pos.x - mapPlayer.position.x;
+            const dz = pos.z - mapPlayer.position.z;
+            const d = Math.sqrt(dx * dx + dz * dz);
+            if (d < nearestDist) { nearestDist = d; nearest = pos; }
+        });
+
+        let targetOpacity = 0;
+        if (nearest) {
+            if (nearestDist <= LABEL_FADE_IN_DIST) targetOpacity = 1;
+            else if (nearestDist < LABEL_FADE_OUT_DIST) {
+                targetOpacity = 1 - (nearestDist - LABEL_FADE_IN_DIST) / (LABEL_FADE_OUT_DIST - LABEL_FADE_IN_DIST);
+            }
+            if (targetOpacity > 0) setMapLabelText('World ' + nearest.stage);
+        }
+
+        mapLabelOpacity = THREE.MathUtils.lerp(mapLabelOpacity, targetOpacity, Math.min(1, delta * LABEL_FADE_SPEED));
+        mapLabelSprite.material.opacity = mapLabelOpacity;
+        mapLabelSprite.visible = mapLabelOpacity > 0.01;
     }
 
     function init() {
@@ -312,20 +445,21 @@
 
       createPlatformerScene();
       createMapScene();
-      
+      initMinimap();
+
       onWindowResize(); // Initial camera setup
 
       // Event Listeners
       window.addEventListener('resize', onWindowResize);
-      window.addEventListener('keydown', handleKeyDown); 
+      window.addEventListener('keydown', handleKeyDown);
       window.addEventListener('keyup', e => keys[e.code] = false);
       document.addEventListener('mousemove', onMouseMove);
       renderer.domElement.addEventListener('click', onMapClick);
     }
-    
+
     function setGameState(newState) {
         gameState = newState;
-        
+
         // Update UI
         document.getElementById('overlay').style.display = 'none';
         document.getElementById('minimap-container').style.display = 'none';
@@ -344,7 +478,7 @@
             mapTargetPosition.copy(mapPlayer.position);
             playMusic();
         } else if (newState === 'LEVEL') {
-            document.getElementById('stageInfo').textContent = `Stage: ${currentStage}`;
+            document.getElementById('stageInfo').textContent = `World ${currentStage}`;
             document.getElementById('controlsHint').textContent = 'WASD: Move | Space: Jump | Shift: Dash | Esc: Menu';
             document.getElementById('minimap-container').style.display = 'block';
             renderer.domElement.requestPointerLock();
@@ -355,19 +489,17 @@
     function loadStage(stageNum) {
         clearLevel();
         currentStage = stageNum;
-        
+
         win = false;
         gameOver = false;
         velocity.set(0,0,0);
         player.position.set(0, 2, 0);
         player.rotation.set(0,0,0);
         player.scale.set(1,1,1);
-        
+
         let groundColor, wallColor, skyColor;
-        // (Stage geometry definitions remain the same as previous fix)
-        // ... (Stage 1, 2, 3 geometry from previous response) ...
         // START STAGE GEOMETRY
-        if (stageNum === 1) { 
+        if (stageNum === 1) {
             skyColor = 0x87ceeb; groundColor = 0x556b2f; wallColor = 0x8b4513;
             scene.background = new THREE.Color(skyColor);
             const wallMat = new THREE.MeshStandardMaterial({color: wallColor});
@@ -375,14 +507,14 @@
             addBlock(0, 0, 8, 5, 0.5, 5, wallColor);
             addBlock(0, 1, 16, 5, 0.5, 5, wallColor);
             const tX = 0, tZ = 25;
-            addBlock(tX, 2, tZ, 5, 0.5, 5, wallColor); 
-            addWall(tX - 2.5, 8, tZ, 0.5, 12, 5, wallMat); 
-            addWall(tX + 2.5, 8, tZ, 0.5, 12, 5, wallMat); 
-            addWall(tX, 8, tZ + 2.5, 5.5, 12, 0.5, wallMat); 
-            addBlock(tX, 14.5, tZ, 5, 0.5, 5, groundColor); 
+            addBlock(tX, 2, tZ, 5, 0.5, 5, wallColor);
+            addWall(tX - 2.5, 8, tZ, 0.5, 12, 5, wallMat);
+            addWall(tX + 2.5, 8, tZ, 0.5, 12, 5, wallMat);
+            addWall(tX, 8, tZ + 2.5, 5.5, 12, 0.5, wallMat);
+            addBlock(tX, 14.5, tZ, 5, 0.5, 5, groundColor);
             const winP = addBlock(tX, 16, tZ - 8, 4, 0.5, 4, 0xffff00);
             winP.userData.win = true;
-        } else if (stageNum === 2) { 
+        } else if (stageNum === 2) {
             skyColor = 0xffa07a; groundColor = 0x8b4513; wallColor = 0xcd5c5c;
             scene.background = new THREE.Color(skyColor);
             const wallMat = new THREE.MeshStandardMaterial({color: wallColor});
@@ -390,13 +522,13 @@
             addBlock(0, 0, 10, 4, 0.5, 4, wallColor);
             const rotBar = addBlock(0, 1.5, 10, 8, 0.5, 0.5, 0xff0000);
             rotBar.userData.rotating = { speed: 1.5 };
-            hazards.push({ mesh: rotBar, type: 'rotator', radius: 4 }); 
+            hazards.push({ mesh: rotBar, type: 'rotator', radius: 4 });
             addBlock(0, 0, 20, 4, 0.5, 4, wallColor);
             let mp = addBlock(10, 2, 20, 4, 0.5, 4, 0x0000ff);
             mp.userData.moving = { axis: 'x', base: 10, amplitude: 5, speed: 1 };
             const winP = addBlock(10, 4, 30, 4, 0.5, 4, 0xffff00);
             winP.userData.win = true;
-        } else if (stageNum === 3) { 
+        } else if (stageNum === 3) {
             skyColor = 0x0a0a2a; groundColor = 0x555555; wallColor = 0x333333;
             scene.background = new THREE.Color(skyColor);
             const wallMat = new THREE.MeshStandardMaterial({color: wallColor});
@@ -408,6 +540,55 @@
             addWall(0, 15, 30, 15, 20, 1, wallMat);
             const winP = addBlock(0, 26, 28, 4, 0.5, 4, 0xffff00);
             winP.userData.win = true;
+        } else if (stageNum === 4) {
+            // Desert Ruins - zigzag stepping stones plus a horizontally sliding platform
+            skyColor = 0xf4d58d; groundColor = 0xc2a15c; wallColor = 0xa9834a;
+            scene.background = new THREE.Color(skyColor);
+            addBlock(0, -1, 0, 40, 1, 40, groundColor);
+            addBlock(0, 0, 8, 4, 0.5, 4, wallColor);
+            addBlock(-5, 1, 15, 3, 0.5, 3, wallColor);
+            addBlock(5, 2, 22, 3, 0.5, 3, wallColor);
+            addBlock(-5, 3, 29, 3, 0.5, 3, wallColor);
+            let sp4 = addBlock(0, 4, 36, 4, 0.5, 4, 0x0000ff);
+            sp4.userData.moving = { axis: 'x', base: 0, amplitude: 6, speed: 1.2 };
+            const winP4 = addBlock(0, 6, 45, 4, 0.5, 4, 0xffff00);
+            winP4.userData.win = true;
+        } else if (stageNum === 5) {
+            // Volcano - rotating hazard bar plus a rising vertical climb
+            skyColor = 0x3a0e0e; groundColor = 0x4b1c1c; wallColor = 0x7a2b2b;
+            scene.background = new THREE.Color(skyColor);
+            const wallMat5 = new THREE.MeshStandardMaterial({color: wallColor});
+            addBlock(0, -1, 0, 40, 1, 40, groundColor);
+            addBlock(0, 0, 10, 4, 0.5, 4, wallColor);
+            const rotBar5 = addBlock(0, 1.5, 10, 9, 0.5, 0.5, 0xff4500);
+            rotBar5.userData.rotating = { speed: 2 };
+            hazards.push({ mesh: rotBar5, type: 'rotator', radius: 4.5 });
+            addBlock(0, 0, 20, 4, 0.5, 4, wallColor);
+            addWall(-2.5, 6, 26, 0.5, 12, 5, wallMat5);
+            addWall(2.5, 6, 26, 0.5, 12, 5, wallMat5);
+            addBlock(0, 12.5, 26, 4.5, 0.5, 4.5, groundColor);
+            let sp5 = addBlock(0, 14, 34, 4, 0.5, 4, 0x0000ff);
+            sp5.userData.moving = { axis: 'x', base: 0, amplitude: 7, speed: 1.5 };
+            const winP5 = addBlock(0, 16, 42, 4, 0.5, 4, 0xffff00);
+            winP5.userData.win = true;
+        } else if (stageNum === 6) {
+            // Sky Peak - the finale: wall-jump tower, rotating blade, and a long moving platform
+            skyColor = 0x1a1a3d; groundColor = 0x6c6c8a; wallColor = 0x45456b;
+            scene.background = new THREE.Color(skyColor);
+            const wallMat6 = new THREE.MeshStandardMaterial({color: wallColor});
+            addBlock(0, -1, 0, 40, 1, 40, groundColor);
+            addBlock(0, 0, 10, 5, 0.5, 5, wallColor);
+            addWall(-2.5, 9, 16, 0.5, 16, 5, wallMat6);
+            addWall(2.5, 9, 16, 0.5, 16, 5, wallMat6);
+            addBlock(0, 17, 16, 5, 0.5, 5, groundColor);
+            const rotBar6 = addBlock(0, 18.5, 16, 8, 0.5, 0.5, 0xff0000);
+            rotBar6.userData.rotating = { speed: 2.2 };
+            hazards.push({ mesh: rotBar6, type: 'rotator', radius: 4 });
+            let sp6 = addBlock(0, 19, 26, 4, 0.5, 4, 0x0000ff);
+            sp6.userData.moving = { axis: 'x', base: 0, amplitude: 8, speed: 1.3 };
+            addBlock(0, 21, 34, 3, 0.5, 3, wallColor);
+            const winP6 = addBlock(0, 23, 40, 4, 0.5, 4, 0xffff00);
+            winP6.userData.win = true;
         }
         // END STAGE GEOMETRY
 
@@ -453,7 +634,6 @@
     function updateAnimations(delta) {
         if (!player) return;
 
-        // ** COLOR SHIFT FIX: Brightens the current color **
         let targetColor = new THREE.Color(currentSettings.playerColor);
         if (isDashing) {
             targetColor = new THREE.Color(0xffffff); // White flash for dash
@@ -461,7 +641,7 @@
             targetColor = brightenColor(currentSettings.playerColor, 0.4); // Brighten on jump/fall
         }
         player.material.color.lerp(targetColor, delta * 15);
-        
+
         // Squash/Stretch
         let targetScaleY = 1.0;
         let targetScaleXZ = 1.0;
@@ -476,11 +656,10 @@
         player.scale.y = THREE.MathUtils.lerp(player.scale.y, targetScaleY, delta * speed);
         player.scale.x = THREE.MathUtils.lerp(player.scale.x, targetScaleXZ, delta * speed);
         player.scale.z = THREE.MathUtils.lerp(player.scale.z, targetScaleXZ, delta * speed);
-        
-        // Hazard/Win animations (if any)
+
         platforms.forEach(p => { if (p.userData.win) p.rotation.y += delta * 2; });
         hazards.forEach(h => {
-            if (h.type === 'rotator') h.mesh.rotation.y += delta * 2; 
+            if (h.type === 'rotator') h.mesh.rotation.y += delta * 2;
         });
     }
 
@@ -493,14 +672,14 @@
         dashCooldownTimer = Math.max(0, dashCooldownTimer - delta);
         horizontalLockoutTimer = Math.max(0, horizontalLockoutTimer - delta);
 
-        // ** DASH LOGIC FIX **
+        // Dash
         if(keys['ShiftLeft'] && dashCooldownTimer === 0 && !isDashing) {
             let dirX = 0, dirZ = 0;
             if(keys['KeyW']) dirZ -= 1;
             if(keys['KeyS']) dirZ += 1;
             if(keys['KeyA']) dirX -= 1;
             if(keys['KeyD']) dirX += 1;
-            
+
             if (dirX !== 0 || dirZ !== 0) {
                 let angle = orbitAngleY;
                 let sin = Math.sin(angle), cos = Math.cos(angle);
@@ -508,7 +687,6 @@
                 dashDirection.z = dirZ * cos - dirX * sin;
                 dashDirection.normalize();
             } else {
-                // Dash straight forward if no movement keys pressed
                 dashDirection.x = Math.sin(orbitAngleY);
                 dashDirection.z = Math.cos(orbitAngleY);
             }
@@ -523,7 +701,7 @@
             dashTimer -= delta;
             if(dashTimer <= 0) {
                 isDashing = false;
-                velocity.x = dashDirection.x * 5; // Slow down gently
+                velocity.x = dashDirection.x * 5;
                 velocity.z = dashDirection.z * 5;
             } else {
                 velocity.x = dashDirection.x * DASH_SPEED;
@@ -534,14 +712,13 @@
 
         // Horizontal Move
         if (!isDashing && horizontalLockoutTimer === 0) {
-            // (Same horizontal movement logic as before)
             let dirX = 0, dirZ = 0;
             if(keys['KeyW'] || keys['ArrowUp']) dirZ -= 1;
             if(keys['KeyS'] || keys['ArrowDown']) dirZ += 1;
             if(keys['KeyA'] || keys['ArrowLeft']) dirX -= 1;
             if(keys['KeyD'] || keys['ArrowRight']) dirX += 1;
 
-            const speed = 8; 
+            const speed = 8;
             if(dirX !== 0 || dirZ !== 0) {
                 let angle = orbitAngleY;
                 let sin = Math.sin(angle), cos = Math.cos(angle);
@@ -560,19 +737,19 @@
 
         // Wall Collision / Wall Jump State
         let isTouchingWall = false;
-        let collisionNormal = new THREE.Vector3(); // Normal of the wall hit
+        let collisionNormal = new THREE.Vector3();
 
         for(let w of walls) {
             const wPos = w.position;
             const wSize = {x:w.userData.size.x/2, y:w.userData.size.y/2, z:w.userData.size.z/2};
-            
+
             if (Math.abs(pPos.x - wPos.x) < half.x + wSize.x &&
                 Math.abs(pPos.y - wPos.y) < half.y + wSize.y &&
                 Math.abs(pPos.z - wPos.z) < half.z + wSize.z) {
-                
+
                 let penX = (half.x + wSize.x) - Math.abs(pPos.x - wPos.x);
                 let penZ = (half.z + wSize.z) - Math.abs(pPos.z - wPos.z);
-                
+
                 isTouchingWall = true;
 
                 if (penX < penZ) {
@@ -580,7 +757,7 @@
                     else { player.position.x -= penX; collisionNormal.x = -1; }
                     velocity.x = 0;
                 } else {
-                    if (pPos.z > wPos.z) { player.position.z += penZ; collisionNormal.z = 1; } 
+                    if (pPos.z > wPos.z) { player.position.z += penZ; collisionNormal.z = 1; }
                     else { player.position.z -= penZ; collisionNormal.z = -1; }
                     velocity.z = 0;
                 }
@@ -590,7 +767,7 @@
         if (isTouchingWall && !onGround) {
             canWallJump = true;
             wallJumpCoyoteTimer = WALL_JUMP_COYOTE_TIME;
-            if (velocity.y < 0) velocity.y = Math.max(velocity.y, -1.5); // Slide
+            if (velocity.y < 0) velocity.y = Math.max(velocity.y, -1.5);
         } else if (!isTouchingWall && canWallJump) {
             canWallJump = false;
         } else if (onGround) {
@@ -599,26 +776,23 @@
 
         // Jump
         if ((keys['Space'] || keys['Numpad0'])) {
-            jumpInputBufferTimer = JUMP_INPUT_BUFFER_TIME; // Buffer jump input
+            jumpInputBufferTimer = JUMP_INPUT_BUFFER_TIME;
         }
-        
+
         if (jumpInputBufferTimer > 0 && (onGround || wallJumpCoyoteTimer > 0)) {
-            
+
             if (wallJumpCoyoteTimer > 0 && !onGround) {
-                // ** WALL JUMP PUSH FIX **
-                // Determine direction based on where the player is now relative to their position 1 frame ago
                 let jumpDirX = player.position.x - pPos.x;
                 let jumpDirZ = player.position.z - pPos.z;
-                
+
                 velocity.y = WALL_JUMP_POWER;
-                
-                // Push AWAY from the wall direction
+
                 if(Math.abs(collisionNormal.x) > 0) velocity.x = -collisionNormal.x * WALL_JUMP_POWER * 0.7;
                 else velocity.x = -jumpDirX * 10;
-                
+
                 if(Math.abs(collisionNormal.z) > 0) velocity.z = -collisionNormal.z * WALL_JUMP_POWER * 0.7;
                 else velocity.z = -jumpDirZ * 10;
-                
+
                 horizontalLockoutTimer = WALL_JUMP_LOCKOUT_TIME;
                 playSound('jump');
             } else if (onGround) {
@@ -627,7 +801,7 @@
             }
             onGround = false;
             jumpInputBufferTimer = 0;
-            keys['Space'] = false; // Consume jump
+            keys['Space'] = false;
         }
 
         // Gravity
@@ -645,7 +819,6 @@
 
         // Platform Collision
         for(let pl of platforms) {
-            // (Platform logic remains the same)
             if(pl.userData.moving) {
                 const t = clock.getElapsedTime();
                 const m = pl.userData.moving;
@@ -657,7 +830,7 @@
             if (Math.abs(player.position.x - pl.position.x) < half.x + wSize.x &&
                 Math.abs(player.position.y - pl.position.y) < half.y + wSize.y &&
                 Math.abs(player.position.z - pl.position.z) < half.z + wSize.z) {
-                
+
                 if (velocity.y <= 0 && player.position.y > pl.position.y + wSize.y - 0.2) {
                     player.position.y = pl.position.y + wSize.y + half.y;
                     velocity.y = 0;
@@ -685,14 +858,27 @@
             if (hit.userData.unlocked) {
                 mapTargetPosition.copy(hit.position);
                 mapTargetPosition.y = 0.5;
-                // Launch level immediately
                 setTimeout(() => loadStage(hit.userData.stage), 300);
             }
         } else {
-            // If they click on the map ground, move the player there
             const groundIntersects = raycaster.intersectObject(mapScene.getObjectByName('MapGround'));
             if (groundIntersects.length > 0) {
-                mapTargetPosition.copy(groundIntersects[0].point);
+                const point = groundIntersects[0].point;
+
+                // Keep movement confined to the path connecting the level nodes,
+                // instead of letting the player wander off into open grass.
+                const nodeXs = MAP_LEVEL_POSITIONS.map(p => p.x);
+                const nodeZs = MAP_LEVEL_POSITIONS.map(p => p.z);
+                const PATH_PADDING = 6;
+                const minX = Math.min(...nodeXs) - PATH_PADDING;
+                const maxX = Math.max(...nodeXs) + PATH_PADDING;
+                const minZ = Math.min(...nodeZs) - PATH_PADDING;
+                const maxZ = Math.max(...nodeZs) + PATH_PADDING;
+
+                point.x = Math.min(maxX, Math.max(minX, point.x));
+                point.z = Math.min(maxZ, Math.max(minZ, point.z));
+
+                mapTargetPosition.copy(point);
                 mapTargetPosition.y = 0.5;
             }
         }
@@ -700,135 +886,198 @@
 
     function mapMovement(delta) {
         if(gameState !== 'MAP') return;
-        
-        // Simple linear movement towards the target
+
         if (mapPlayer.position.distanceTo(mapTargetPosition) > 0.1) {
             mapPlayer.position.lerp(mapTargetPosition, delta * 3);
         }
+        // Camera stays fixed (Mario-Wii-map style) - no follow logic here.
+        updateMapLabel(delta);
     }
 
     // --- UI & Game State Management ---
 
     function handleKeyDown(e) {
         keys[e.code] = true;
-        
+
         if (e.code === 'Escape') {
             if (gameState === 'LEVEL' || gameState === 'MAP') {
+                previousState = gameState;
                 setGameState('PAUSED');
                 showPanel('pausePanel');
-            } else if (gameState === 'PAUSED' || gameState === 'MENU') {
-                // If exiting menu, go back to the game state before pause
-                setGameState(currentStage === 0 ? 'MAP' : 'LEVEL');
+            } else if (gameState === 'PAUSED') {
+                setGameState(previousState);
             }
         }
-        
+
         if (e.code === 'KeyR' && gameState === 'LEVEL') loadStage(currentStage);
     }
-    
+
     function onMouseMove(e) {
         if (gameState !== 'LEVEL') return;
         orbitAngleY -= e.movementX * dragSensitivity;
         orbitAngleX -= e.movementY * dragSensitivity;
         orbitAngleX = Math.max(0.1, Math.min(Math.PI/2 - 0.1, orbitAngleX));
     }
-    
-    // (die, winStage, playSound, and UI panel functions remain the same)
-    
+
     function showPanel(id) {
         document.querySelectorAll('.panel').forEach(p => p.style.display = 'none');
         document.getElementById('overlay').style.display = 'flex';
         document.getElementById(id).style.display = 'block';
         document.exitPointerLock();
     }
-    
+
     function resumeGame() {
-        setGameState(currentStage === 0 ? 'MAP' : 'LEVEL');
+        setGameState(previousState);
         hidePanels();
         if (!animationFrameId) animate();
     }
-    
+
     function hidePanels() {
         document.getElementById('overlay').style.display = 'none';
         document.querySelectorAll('.panel').forEach(p => p.style.display = 'none');
         if (gameState === 'LEVEL') renderer.domElement.requestPointerLock();
     }
-    
+
     // --- Main Game Loop ---
 
     function animate() {
         const delta = Math.min(0.05, clock.getDelta());
-        
+
         if (gameState === 'LEVEL') {
             physics(delta);
             updateAnimations(delta);
-            
-            // Camera (Level Mode)
+
             const x = player.position.x + orbitRadius * Math.cos(orbitAngleX) * Math.sin(orbitAngleY);
             const y = player.position.y + orbitRadius * Math.sin(orbitAngleX);
             const z = player.position.z + orbitRadius * Math.cos(orbitAngleX) * Math.cos(orbitAngleY);
             camera.position.set(x, y, z);
             camera.lookAt(player.position);
-            
+
             renderer.render(scene, camera);
-            // drawMinimap(); // Minimap code is still needed but omitted for brevity.
-            
+            drawMinimap();
+
         } else if (gameState === 'MAP') {
             mapMovement(delta);
             renderer.render(mapScene, mapCamera);
         } else if (gameState === 'PAUSED' || gameState === 'MENU') {
-            // Render the last active scene while paused (no update)
             renderer.render(scene || mapScene, camera || mapCamera);
         }
-        
+
         animationFrameId = requestAnimationFrame(animate);
     }
 
     // --- Boot ---
+    function showFatalError(message) {
+        const div = document.createElement('div');
+        div.style.cssText = 'position:fixed;inset:0;z-index:99;background:#300;color:#fff;' +
+            'font-family:monospace;font-size:16px;padding:40px;white-space:pre-wrap;overflow:auto;';
+        div.textContent = 'Game failed to start:\n\n' + message +
+            '\n\nIf you are viewing this inside an embedded preview, try opening the .html file directly in a desktop browser (Chrome/Firefox/Edge) instead — some embedded previews block WebGL.';
+        document.body.appendChild(div);
+    }
+
     window.addEventListener('DOMContentLoaded', () => {
-        // (Omitted audio and settings setup for brevity)
-        audioCtx = new AudioContext();
-        init();
-        
-        // --- Setup Buttons (Must be complete) ---
-        
-        // Main Menu
-        document.getElementById('startGameBtn').onclick = () => setGameState('MAP');
+        if (typeof THREE === 'undefined') {
+            showFatalError('THREE is not defined — the three.js library failed to load from the CDN (check your network connection / ad-blocker, or that the CDN is reachable).');
+            return;
+        }
 
-        // Settings / Controls
-        document.getElementById('showSettingsBtn').onclick = () => showPanel('settingsPanel');
-        document.getElementById('closeSettingsBtn').onclick = () => setGameState('MAP');
-        document.getElementById('showControlsBtn').onclick = () => showPanel('controlsPanel');
-        document.getElementById('closeControlsBtn').onclick = () => setGameState('MAP');
+        try {
+            audioCtx = new AudioContext();
+        } catch (err) {
+            console.warn('AudioContext unavailable:', err);
+        }
 
-        // Pause Menu
-        document.getElementById('resumeBtn').onclick = resumeGame;
-        document.getElementById('pauseRestartBtn').onclick = () => loadStage(currentStage);
-        document.getElementById('menuBtnPause').onclick = () => setGameState('MAP');
+        try {
+            init();
+        } catch (err) {
+            showFatalError('Could not initialize WebGL renderer.\n' + (err && err.stack ? err.stack : err));
+            return;
+        }
 
-        // Game Over
-        document.getElementById('gameOverRestartBtn').onclick = () => loadStage(currentStage);
-        document.getElementById('menuBtnLose').onclick = () => setGameState('MAP');
+        try {
+            // --- Setup Buttons ---
 
-        // Win Panel
-        document.getElementById('nextLevelBtn').onclick = () => {
-            if (currentStage < TOTAL_STAGES) loadStage(currentStage + 1);
-            else setGameState('MAP');
-        };
-        document.getElementById('menuBtnWin').onclick = () => setGameState('MAP');
-        
-        // Final State
-        setGameState('MENU');
-        animate();
+            // Main Menu
+            document.getElementById('startGameBtn').onclick = () => setGameState('MAP');
+
+            // Settings / Controls
+            document.getElementById('showSettingsBtn').onclick = () => showPanel('settingsPanel');
+            document.getElementById('closeSettingsBtn').onclick = () => setGameState('MENU');
+            document.getElementById('showControlsBtn').onclick = () => showPanel('controlsPanel');
+            document.getElementById('closeControlsBtn').onclick = () => setGameState('MENU');
+
+            // Settings inputs
+            document.getElementById('volumeSlider').oninput = (e) => {
+                currentSettings.volume = parseFloat(e.target.value);
+                if (musicGainNode) musicGainNode.gain.value = currentSettings.volume;
+            };
+            document.getElementById('colorPicker').oninput = (e) => {
+                currentSettings.playerColor = e.target.value;
+                if (mapPlayer) mapPlayer.material.color.set(currentSettings.playerColor);
+            };
+            document.getElementById('cameraDistanceSlider').oninput = (e) => {
+                currentSettings.cameraDistance = parseFloat(e.target.value);
+                orbitRadius = currentSettings.cameraDistance;
+            };
+
+            // Pause Menu
+            document.getElementById('resumeBtn').onclick = resumeGame;
+            document.getElementById('pauseRestartBtn').onclick = () => loadStage(currentStage);
+            document.getElementById('menuBtnPause').onclick = () => setGameState('MAP');
+
+            // Game Over
+            document.getElementById('gameOverRestartBtn').onclick = () => loadStage(currentStage);
+            document.getElementById('menuBtnLose').onclick = () => setGameState('MAP');
+
+            // Win Panel
+            document.getElementById('nextLevelBtn').onclick = () => {
+                if (currentStage < TOTAL_STAGES) loadStage(currentStage + 1);
+                else setGameState('MAP');
+            };
+            document.getElementById('menuBtnWin').onclick = () => setGameState('MAP');
+
+            // Final State
+            loadSettings();
+            setGameState('MENU');
+            animate();
+        } catch (err) {
+            showFatalError('Boot sequence failed.\n' + (err && err.stack ? err.stack : err));
+        }
     });
 
-    // Placeholder functions for completeness
-    function drawMinimap() {} 
+    // --- Minimap (corner, top-down) ---
+    let minimapRenderer, minimapCamera;
+
+    function initMinimap() {
+        const canvas = document.getElementById('minimap');
+        minimapRenderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
+        minimapRenderer.setSize(150, 150);
+
+        minimapCamera = new THREE.OrthographicCamera(-25, 25, 25, -25, 0.1, 200);
+        minimapCamera.up.set(0, 0, -1); // avoid a degenerate lookAt when facing straight down
+        minimapCamera.position.set(0, 50, 0);
+        minimapCamera.lookAt(0, 0, 0);
+    }
+
+    function drawMinimap() {
+        if (!minimapRenderer || !player) return;
+        minimapCamera.position.set(player.position.x, 50, player.position.z);
+        minimapCamera.lookAt(player.position.x, 0, player.position.z);
+        minimapRenderer.render(scene, minimapCamera);
+    }
     function die() { if(gameOver || win) return; gameOver = true; showPanel('gameOverPanel'); isPaused = true; }
     function winStage() { win = true; saveProgress(); setGameState('PAUSED'); showPanel('winPanel'); }
     function playSound(type) {}
-    function loadSettings() { updateLevelGrid(); }
     function saveProgress() { if (currentStage >= maxStageReached) maxStageReached = currentStage + 1; updateLevelGrid(); }
-    function updateLevelGrid() { /* Logic to color map buttons */ }
+    function updateLevelGrid() {
+        levelButtons.forEach((mesh, index) => {
+            const isUnlocked = index + 1 <= maxStageReached;
+            mesh.userData.unlocked = isUnlocked;
+            mesh.material.color.setHex(isUnlocked ? 0x00aa00 : 0x555555);
+            mesh.material.emissive.setHex(isUnlocked ? 0x005500 : 0x000000);
+        });
+    }
 
   </script>
 </body>
